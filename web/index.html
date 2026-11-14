@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="token" content="{{TOKEN}}">
+<title>Mac Storage Doctor</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="logo">&#9673;</span> Mac Storage Doctor</div>
+  <nav id="tabs">
+    <button data-tab="overview" class="active">Overview</button>
+    <button data-tab="plan">Cleanup plan</button>
+    <button data-tab="agents">AI &amp; runaway files</button>
+    <button data-tab="large">Large files</button>
+    <button data-tab="dups">Duplicates</button>
+    <button data-tab="explore">Explore</button>
+  </nav>
+</header>
+
+<main>
+  <!-- disk card is always visible -->
+  <section class="card disk-card">
+    <div class="disk-head">
+      <div>
+        <div class="muted small">Startup disk</div>
+        <div id="disk-text" class="disk-text">Loading...</div>
+        <div id="disk-need" class="disk-need"></div>
+      </div>
+      <div class="target-box">
+        <label for="target">Keep disk used at or below <b id="target-val">50</b>%</label>
+        <input type="range" id="target" min="20" max="90" step="5" value="50">
+      </div>
+    </div>
+    <div class="gauge"><div id="gauge-used" class="gauge-used"></div><div id="gauge-target" class="gauge-target"><span>target</span></div></div>
+    <div class="scan-row">
+      <button id="scan-btn" class="primary">Scan my Mac</button>
+      <button id="cancel-btn" class="ghost hidden">Cancel</button>
+      <button id="empty-trash-btn" class="ghost" title="Space from items moved to the Trash is freed only after emptying it">Empty Trash</button>
+      <details class="roots">
+        <summary>Folders to scan</summary>
+        <textarea id="roots" rows="5" spellcheck="false"></textarea>
+        <div class="muted small">One folder per line. By default this is your home folder plus the shared app/system folders you can read.</div>
+      </details>
+      <span id="scan-status" class="muted"></span>
+    </div>
+    <div id="alerts"></div>
+  </section>
+
+  <section id="tab-overview" class="tab">
+    <div id="empty-state" class="card empty">
+      <h2>Find out what's filling your disk</h2>
+      <p>Click <b>Scan my Mac</b>. It only reads file sizes and dates. Nothing gets deleted unless you click <b>Move to Trash</b> yourself.</p>
+      <p class="muted small">Tip: give your Terminal app <b>Full Disk Access</b> (System Settings &gt; Privacy &amp; Security &gt; Full Disk Access) so it can also measure Mail, Messages and some app data.</p>
+    </div>
+    <div id="overview" class="hidden">
+      <div class="cards4" id="quick"></div>
+      <section class="card">
+        <h3>Where your space goes</h3>
+        <div id="cat-bar" class="stack-bar"></div>
+        <div id="cat-list" class="cat-list"></div>
+      </section>
+      <div class="grid2">
+        <section class="card"><h3>Biggest cleanup opportunities</h3><div id="top-findings"></div>
+          <button class="link" data-goto="plan">Open full cleanup plan &rarr;</button></section>
+        <section class="card"><h3>What changed recently</h3><div id="recent-summary"></div>
+          <button class="link" data-goto="agents">See AI &amp; runaway analysis &rarr;</button></section>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-plan" class="tab hidden">
+    <section class="card">
+      <div class="plan-head">
+        <div>
+          <h3>Cleanup plan</h3>
+          <div id="plan-summary" class="plan-summary"></div>
+        </div>
+        <div class="btns">
+          <button id="sel-rec" class="ghost">Select recommended</button>
+          <button id="sel-none" class="ghost">Clear selection</button>
+          <button id="trash-sel" class="danger">Move selected to Trash</button>
+        </div>
+      </div>
+      <div class="filters">
+        <select id="plan-cat"><option value="">All categories</option></select>
+        <label><input type="checkbox" class="plan-safety" value="safe" checked> Safe</label>
+        <label><input type="checkbox" class="plan-safety" value="review" checked> Review first</label>
+        <label><input type="checkbox" class="plan-safety" value="careful" checked> Personal data (manage in app)</label>
+        <input id="plan-q" type="search" placeholder="Filter by name or path">
+      </div>
+      <div class="legend small muted">
+        <span class="badge safe">safe</span> rebuilds itself (caches, build files)
+        <span class="badge review">review</span> re-downloadable or probably unneeded; check first
+        <span class="badge careful">careful</span> personal data; follow the advice instead of deleting
+      </div>
+      <table class="tbl" id="plan-table"><thead><tr><th></th><th>Item</th><th>Category</th><th class="r">Size</th><th>Last changed</th><th></th></tr></thead><tbody></tbody></table>
+    </section>
+  </section>
+
+  <section id="tab-agents" class="tab hidden">
+    <section class="card">
+      <h3>Possible runaway file generation</h3>
+      <p class="muted small">Folders where a program (often an AI agent or script stuck in a loop) created many files with machine-style names, a burst of new files, or folders nested inside themselves.</p>
+      <div id="runaway"></div>
+    </section>
+    <div class="grid2">
+      <section class="card"><h3>Written in the last <span class="recent-days">7</span> days</h3><div id="hotspots"></div></section>
+      <section class="card"><h3>Growth since last scan</h3><div id="growth"></div></section>
+    </div>
+    <section class="card"><h3>AI agents &amp; local models</h3><div id="ai-list"></div></section>
+  </section>
+
+  <section id="tab-large" class="tab hidden">
+    <section class="card">
+      <h3>Large files</h3>
+      <div class="filters">
+        <select id="large-min"><option value="200000000">&ge; 200 MB</option><option value="500000000" selected>&ge; 500 MB</option><option value="1000000000">&ge; 1 GB</option><option value="5000000000">&ge; 5 GB</option></select>
+        <select id="large-age"><option value="0">Any age</option><option value="30">Not changed for 30+ days</option><option value="180">Not changed for 6+ months</option><option value="365">Not changed for 1+ year</option></select>
+        <select id="large-cat"><option value="">All categories</option></select>
+      </div>
+      <table class="tbl" id="large-table"><thead><tr><th>File</th><th>Category</th><th class="r">Size</th><th>Last changed</th><th></th></tr></thead><tbody></tbody></table>
+    </section>
+  </section>
+
+  <section id="tab-dups" class="tab hidden">
+    <section class="card">
+      <h3>Duplicate files</h3>
+      <p class="muted small">Compares files of 20 MB or more by content. The oldest copy in each group is marked "keep". Note: macOS can store some copies as space-sharing clones, so the real savings may be lower.</p>
+      <button id="dup-btn" class="primary">Find duplicates</button> <span id="dup-status" class="muted"></span>
+      <div id="dups"></div>
+    </section>
+  </section>
+
+  <section id="tab-explore" class="tab hidden">
+    <section class="card">
+      <div id="crumbs" class="crumbs"></div>
+      <div id="explore"></div>
+    </section>
+  </section>
+</main>
+<div id="toast" class="toast hidden"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>
