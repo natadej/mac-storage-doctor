@@ -144,6 +144,7 @@ class Scanner:
         self._seen_inodes = set()
         self.tree = None
         self.index = {}
+        self.locked = set()  # folders/files that must be managed in their own app, never trashed
 
     # ------------------------------------------------------------------
     def run(self):
@@ -174,6 +175,8 @@ class Scanner:
         root["children"].sort(key=lambda n: -n["size"])
         self.tree = root
         self._build_index(root)
+        for f in self.large_files:
+            f["locked"] = self.is_locked(f["path"])
         self.findings.sort(key=lambda f: -f["size"])
         self.large_files.sort(key=lambda f: -f["size"])
         self.runaway.sort(key=lambda f: -f["score"])
@@ -183,6 +186,8 @@ class Scanner:
     def _record(self, rule, node, name, parent, claimed):
         excl = node["size"] - claimed
         self.cat_totals[rule["cat"]] += excl
+        if not rule["trashable"] or rule["safety"] == "careful":
+            self.locked.add(node["path"])
         if rule["container"] or node["size"] < rule["min_size"]:
             return
         self.findings.append({
@@ -204,7 +209,7 @@ class Scanner:
 
     def _scan_dir(self, path, name, parent, depth, inside_stop, inside_action, quiet, cat):
         node = {"name": name, "path": path, "kind": "dir", "size": 0, "files": 0, "recent": 0,
-                "recent_files": 0, "newest": 0, "children": []}
+                "recent_files": 0, "newest": 0, "children": [], "cat": cat}
         self.dirs += 1
         if self.dirs % 200 == 0:
             self.current = path
@@ -313,7 +318,7 @@ class Scanner:
                         self.dup_candidates.append((fpath, size))
                     if size >= TREE_FILE_MIN:
                         kids.append({"name": fname, "path": fpath, "kind": "file", "size": size, "files": 1,
-                                     "newest": mtime})
+                                     "newest": mtime, "cat": fcat})
 
         # runaway: many machine-named files in one folder
         if not quiet and direct_files >= RUNAWAY_MIN_FILES and patterns:
@@ -384,27 +389,101 @@ class Scanner:
         walk(self.tree, 0)
         return snap
 
+    def is_locked(self, path):
+        """True if path is (inside) personal data or app-managed storage that must not be trashed."""
+        p = path
+        while True:
+            if p in self.locked:
+                return True
+            parent = os.path.dirname(p)
+            if parent == p:
+                return False
+            p = parent
+
+    def contains_locked(self, path):
+        prefix = path.rstrip(os.sep) + os.sep
+        return any(x.startswith(prefix) for x in self.locked)
+
+    def _category_of(self, path, pnode):
+        n = self.index.get(path)
+        if n and n.get("cat"):
+            return n["cat"]
+        for c in (pnode or {}).get("children", ()):
+            if c["path"] == path and c.get("cat"):
+                return c["cat"]
+        for f in self.findings + self.large_files:
+            if f["path"] == path:
+                return f["category"]
+        return "other"
+
+    def _add_size(self, start, delta):
+        p = start
+        while True:
+            n = self.index.get(p)
+            if n:
+                n["size"] = max(0, n["size"] + delta)
+            if p in self.roots or p == os.path.dirname(p):
+                break
+            p = os.path.dirname(p)
+        self.tree["size"] = max(0, self.tree["size"] + delta)
+
+    def _in_roots(self, path):
+        return any(path == r or path.startswith(r.rstrip(os.sep) + os.sep) for r in self.roots)
+
+    def moved_to_trash(self, size, trash_dir):
+        """Account for size bytes that now live in trash_dir (after remove_path)."""
+        trash_dir = os.path.normpath(trash_dir)
+        if not size or not self._in_roots(trash_dir):
+            return
+        self.cat_totals["trash"] += size
+        self._add_size(trash_dir, size)
+        f = next((f for f in self.findings if f["path"] == trash_dir), None)
+        if f:
+            f["size"] += size
+            return
+        rule = self.rules.by_path.get(trash_dir)
+        if rule:
+            self.findings.append({
+                "path": trash_dir, "name": os.path.basename(trash_dir), "label": rule["label"] or "Trash",
+                "category": rule["cat"], "size": size, "files": 0, "newest": time.time(), "recent": size,
+                "safety": rule["safety"], "advice": rule["advice"], "command": rule["command"],
+                "trashable": rule["trashable"], "empty_trash": rule.get("empty_trash", False), "kind": "dir"})
+            self.findings.sort(key=lambda x: -x["size"])
+
+    def trash_emptied(self, trash_dir):
+        trash_dir = os.path.normpath(trash_dir)
+        if not self._in_roots(trash_dir):
+            return
+        n = self.index.get(trash_dir)
+        f = next((f for f in self.findings if f["path"] == trash_dir), None)
+        size = n["size"] if n else (f["size"] if f else 0)
+        if n:
+            for k in [k for k in self.index if k.startswith(trash_dir + os.sep)]:
+                del self.index[k]
+            n["children"] = []
+            n["files"] = 0
+        self._add_size(trash_dir, -size)
+        self.cat_totals["trash"] = max(0, self.cat_totals["trash"] - size)
+        self.findings = [x for x in self.findings if x is not f]
+        self.large_files = [x for x in self.large_files if not x["path"].startswith(trash_dir + os.sep)]
+
     def remove_path(self, path, size=None):
         """Update the in-memory tree after a path was moved to the Trash."""
         parent = os.path.dirname(path)
         pnode = self.index.get(parent)
+        cat = self._category_of(path, pnode)
         if size is None:
             size = 0
             if pnode:
                 for c in pnode["children"]:
                     if c["path"] == path:
                         size = c["size"]
+            if not size and path in self.index:
+                size = self.index[path]["size"]
+        self.cat_totals[cat] = max(0, self.cat_totals[cat] - size)
         if pnode:
             pnode["children"] = [c for c in pnode["children"] if c["path"] != path]
-        p = parent
-        while True:
-            n = self.index.get(p)
-            if n:
-                n["size"] = max(0, n["size"] - size)
-            if p in self.roots or p == os.path.dirname(p):
-                break
-            p = os.path.dirname(p)
-        self.tree["size"] = max(0, self.tree["size"] - size)
+        self._add_size(parent, -size)
         for k in [k for k in self.index if k == path or k.startswith(path + os.sep)]:
             del self.index[k]
         self.findings = [f for f in self.findings if not (f["path"] == path or f["path"].startswith(path + os.sep))]

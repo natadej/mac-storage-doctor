@@ -36,6 +36,7 @@ DATA_DIR = os.environ.get("STORAGE_DOCTOR_DATA") or os.path.join(HOME, ".storage
 WEB_DIR = os.path.join(APP_DIR, "web")
 LAUNCH_AGENT = os.path.join(HOME, "Library", "LaunchAgents", "com.storagedoctor.monitor.plist")
 DEFAULT_TARGET = 50
+SNAPSHOT_MIN = 50 * R.MB
 
 PROTECTED = {HOME, "/", "/Applications", "/Library", "/System", "/Users", "/private", "/usr", "/opt", "/bin", "/sbin",
              "/var", "/etc", "/tmp", "/Volumes"}
@@ -102,6 +103,11 @@ def notify(title, message):
         print(f"[notify] {title}: {message}")
 
 
+def trash_dir():
+    return os.environ.get("STORAGE_DOCTOR_TRASH") or (
+        os.path.join(HOME, ".Trash") if IS_MAC else os.path.join(HOME, ".local", "share", "Trash", "files"))
+
+
 def move_to_trash(path):
     """Move to the macOS Trash via Finder (so 'Put Back' works); fall back to a plain move."""
     if IS_MAC:
@@ -109,8 +115,7 @@ def move_to_trash(path):
         r = subprocess.run(["osascript", "-e", script, path], capture_output=True, text=True)
         if r.returncode == 0:
             return
-    trash = os.environ.get("STORAGE_DOCTOR_TRASH") or (
-        os.path.join(HOME, ".Trash") if IS_MAC else os.path.join(HOME, ".local", "share", "Trash", "files"))
+    trash = trash_dir()
     os.makedirs(trash, exist_ok=True)
     base = os.path.basename(path.rstrip(os.sep))
     dest = os.path.join(trash, base)
@@ -128,7 +133,7 @@ def empty_trash():
         if r.returncode != 0:
             raise RuntimeError(r.stderr.strip() or "Finder could not empty the Trash")
         return
-    trash = os.environ.get("STORAGE_DOCTOR_TRASH") or os.path.join(HOME, ".local", "share", "Trash", "files")
+    trash = trash_dir()
     if os.path.isdir(trash):
         for name in os.listdir(trash):
             p = os.path.join(trash, name)
@@ -146,7 +151,8 @@ def reveal(path):
 def save_scan_history(scanner, disk):
     ensure_data_dir()
     rec = {"time": scanner.now, "roots": scanner.roots, "disk": disk, "scanned": scanner.tree["size"],
-           "categories": dict(scanner.cat_totals), "folders": scanner.snapshot()}
+           "categories": dict(scanner.cat_totals), "folders": scanner.snapshot(SNAPSHOT_MIN),
+           "snapshot_min": SNAPSHOT_MIN}
     path = os.path.join(DATA_DIR, "scans", time.strftime("%Y%m%d-%H%M%S", time.localtime(scanner.now)) + ".json")
     with open(path, "w") as f:
         json.dump(rec, f)
@@ -176,15 +182,22 @@ def previous_scan(roots, before):
 
 
 def growth_since(prev, snap, min_bytes=100 * R.MB, limit=30):
+    """Folders that grew since the previous scan. Folders missing from the previous snapshot were
+    smaller than SNAPSHOT_MIN then, so their growth is reported as a lower bound (was=None)."""
     if not prev:
         return None
     old = prev.get("folders", {})
-    deltas = {p: s - old.get(p, 0) for p, s in snap.items() if s - old.get(p, 0) >= min_bytes}
+    floor = prev.get("snapshot_min", SNAPSHOT_MIN)
+    deltas = {}
+    for p, s in snap.items():
+        d = s - old[p] if p in old else s - floor
+        if d >= min_bytes:
+            deltas[p] = d
     keep = []
     for p, d in deltas.items():
         explained = any(q != p and q.startswith(p + os.sep) and dq >= 0.7 * d for q, dq in deltas.items())
         if not explained:
-            keep.append({"path": p, "growth": d, "size": snap[p], "was": old.get(p, 0)})
+            keep.append({"path": p, "growth": d, "size": snap[p], "was": old.get(p), "was_under": floor})
     keep.sort(key=lambda x: -x["growth"])
     return {"since": prev["time"], "disk_was": prev.get("disk", {}).get("used"), "folders": keep[:limit]}
 
@@ -217,7 +230,7 @@ class State:
             sc.run()
             disk = disk_info()
             prev = previous_scan(sc.roots, sc.now)
-            snap = sc.snapshot()
+            snap = sc.snapshot(SNAPSHOT_MIN)
             growth = growth_since(prev, snap)
             if not sc.cancelled:
                 save_scan_history(sc, disk)
@@ -236,13 +249,25 @@ class State:
                 (self.finished - self.started if self.finished else 0)}
 
 
-def build_results(sc, disk, growth, duration):
-    unscanned = max(0, disk["used"] - sc.tree["size"])
-    cats = []
+def category_list(sc, disk):
     totals = dict(sc.cat_totals)
-    totals["system"] = unscanned
-    for cid, label, color in R.CATEGORIES:
-        cats.append({"id": cid, "label": label, "color": color, "size": totals.get(cid, 0)})
+    totals["system"] = max(0, disk["used"] - sc.tree["size"])
+    return [{"id": cid, "label": label, "color": color, "size": totals.get(cid, 0)} for cid, label, color in R.CATEGORIES]
+
+
+def refresh_results():
+    """Bring the cached results in line with the scanner after a cleanup action."""
+    sc, res = STATE.scanner, STATE.results
+    if not (sc and res):
+        return None
+    disk = disk_info()
+    res.update(disk=disk, scanned=sc.tree["size"], categories=category_list(sc, disk),
+               findings=sc.findings[:600], large_files=sc.large_files[:400])
+    return {k: res[k] for k in ("scanned", "categories", "findings", "large_files")}
+
+
+def build_results(sc, disk, growth, duration):
+    cats = category_list(sc, disk)
     snaps = tm_local_snapshots()
     return {
         "time": sc.now,
@@ -278,6 +303,8 @@ def allowed_target(path):
         return False
     path = os.path.normpath(path)
     if path in PROTECTED or path in sc.roots:
+        return False
+    if sc.is_locked(path) or sc.contains_locked(path):
         return False
     if not any(path.startswith(r.rstrip(os.sep) + os.sep) for r in sc.roots):
         return False
@@ -356,10 +383,16 @@ class Handler(BaseHTTPRequestHandler):
             if node is None:
                 return self._send(404, {"error": "folder not in scan (too small or not scanned)"})
             kids = [{k: c.get(k) for k in ("name", "path", "kind", "size", "files", "newest", "recent")}
-                    | {"has_children": bool(c.get("children"))} for c in node["children"]]
+                    | {"has_children": bool(c.get("children")),
+                       "locked": bool(c.get("path")) and (sc.is_locked(c["path"]) or sc.contains_locked(c["path"]))}
+                    for c in node["children"]]
             return self._send(200, {"path": path, "name": node["name"], "size": node["size"], "children": kids})
         if u.path == "/api/duplicates":
             d = STATE.dup
+            sc = STATE.scanner
+            for g in d["results"] or []:
+                for f in g["files"]:
+                    f["locked"] = bool(sc and sc.is_locked(f["path"]))
             return self._send(200, {"running": d["running"], "results": d["results"], "progress": d["progress"]})
         return self._send(404, {"error": "unknown endpoint"})
 
@@ -404,24 +437,24 @@ class Handler(BaseHTTPRequestHandler):
             for p in paths:
                 p = os.path.normpath(p)
                 if not allowed_target(p):
-                    failed.append({"path": p, "error": "not allowed (protected, missing, or outside scanned folders)"})
+                    failed.append({"path": p, "error": "not allowed (protected, personal data, app-managed, missing, or outside scanned folders)"})
                     continue
                 try:
                     move_to_trash(p)
                     size = STATE.scanner.remove_path(p)
+                    STATE.scanner.moved_to_trash(size, trash_dir())
                     done.append({"path": p, "size": size})
                 except Exception as e:
                     failed.append({"path": p, "error": str(e)})
-            if STATE.results:
-                STATE.results["findings"] = STATE.scanner.findings[:600]
-                STATE.results["large_files"] = STATE.scanner.large_files[:400]
-            return self._send(200, {"trashed": done, "failed": failed, "disk": disk_info()})
+            return self._send(200, {"trashed": done, "failed": failed, "results": refresh_results(), "disk": disk_info()})
         if u.path == "/api/empty-trash":
             try:
                 empty_trash()
             except Exception as e:
                 return self._send(500, {"error": str(e)})
-            return self._send(200, {"ok": True, "disk": disk_info()})
+            if STATE.scanner and STATE.scanner.tree and not STATE.scanning:
+                STATE.scanner.trash_emptied(trash_dir())
+            return self._send(200, {"ok": True, "results": refresh_results(), "disk": disk_info()})
         if u.path == "/api/duplicates":
             sc = STATE.scanner
             if not sc or STATE.scanning:

@@ -99,7 +99,7 @@ function planItems() {
     if (lf.in_finding || S.trashed.has(lf.path)) continue;
     const careful = ["media", "docs", "cloud", "messages", "backups"].includes(lf.category);
     items.push({ path: lf.path, name: lf.name, label: lf.name, category: lf.category, size: lf.size, newest: lf.mtime,
-      safety: "review", trashable: !["cloud", "messages", "backups"].includes(lf.category), kind: "file", source: "large",
+      safety: "review", trashable: !lf.locked && !["cloud", "messages", "backups"].includes(lf.category), kind: "file", source: "large",
       advice: careful ? "Large personal file. Keep it if you need it, or move it to an external drive." : "Large file. Delete it if you no longer need it." });
   }
   items.sort((a, b) => (SAFETY_RANK[a.safety] - SAFETY_RANK[b.safety]) || (b.size - a.size));
@@ -132,7 +132,7 @@ function renderOverview() {
 
   const parts = [];
   if (r.growth && r.growth.folders.length) {
-    parts.push(`<div class="muted small">Since the last scan (${ago(r.growth.since)}):</div>` + r.growth.folders.slice(0, 4).map(g => `<div class="row"><div class="grow">${pathEl(g.path)}</div><div class="sz">+${fmt(g.growth)}</div></div>`).join(""));
+    parts.push(`<div class="muted small">Since the last scan (${ago(r.growth.since)}):</div>` + r.growth.folders.slice(0, 4).map(g => `<div class="row"><div class="grow">${pathEl(g.path)}</div><div class="sz">${growthText(g)}</div></div>`).join(""));
   }
   parts.push(`<div class="muted small">Most data written in the last ${r.recent_days} days:</div>` + (r.hotspots.slice(0, 5).map(h => `<div class="row"><div class="grow">${pathEl(h.path)}<div class="small muted">${num(h.recent_files)} files changed</div></div><div class="sz">${fmt(h.recent)}</div></div>`).join("") || `<div class="muted">Nothing big.</div>`));
   $("#recent-summary").innerHTML = parts.join("");
@@ -203,16 +203,21 @@ async function trashPaths(items) {
   try {
     const r = await api("/api/trash", { paths: items.map(i => i.path) });
     r.trashed.forEach(t => { S.trashed.add(t.path); S.selected.delete(t.path); });
-    S.disk = r.disk; renderDisk();
+    S.disk = r.disk; if (r.results) Object.assign(S.results, r.results); renderDisk();
     toast(`Moved ${r.trashed.length} item(s) to the Trash.` + (r.failed.length ? ` ${r.failed.length} failed: ${r.failed[0].error}` : "") + " Empty the Trash to free the space.", 6000);
     renderPlan(); renderLarge(); renderOverview(); if (S.dups) renderDups(S.dups); loadTree(S.explorePath);
   } catch (e) { toast("Failed: " + e.message); }
 }
 async function emptyTrash() {
   if (!confirm("Empty the Trash? Items in it will be permanently deleted.")) return;
-  try { const r = await api("/api/empty-trash", {}); S.disk = r.disk; renderDisk(); renderPlan(); toast("Trash emptied."); }
+  try {
+    const r = await api("/api/empty-trash", {}); S.disk = r.disk; if (r.results) Object.assign(S.results, r.results);
+    renderDisk(); if (S.results) { renderPlan(); renderOverview(); renderLarge(); loadTree(S.explorePath); } toast("Trash emptied.");
+  }
   catch (e) { toast("Couldn't empty Trash: " + e.message); }
 }
+
+const growthText = g => (g.was == null ? "&ge; " : "") + "+" + fmt(g.growth);
 
 // ------------------------------------------------------------ agents / runaway
 function renderAgents() {
@@ -232,7 +237,7 @@ function renderAgents() {
   $("#hotspots").innerHTML = r.hotspots.map(h => `<div class="row"><div class="grow">${pathEl(h.path)}<div class="bar"><div style="width:${h.recent / maxH * 100}%"></div></div><div class="small muted">${num(h.recent_files)} files changed · folder total ${fmt(h.size)}</div></div><div class="sz">${fmt(h.recent)}</div></div>`).join("") || `<div class="muted">No folder got more than 500 MB of new data.</div>`;
   if (r.growth) {
     $("#growth").innerHTML = `<div class="small muted">Compared with the scan from ${ago(r.growth.since)}${r.growth.disk_was ? ` · disk used then: ${fmt(r.growth.disk_was)}, now: ${fmt(r.disk.used)}` : ""}</div>` +
-      (r.growth.folders.map(g => `<div class="row"><div class="grow">${pathEl(g.path)}<div class="small muted">${fmt(g.was)} &rarr; ${fmt(g.size)}</div></div><div class="sz">+${fmt(g.growth)}</div></div>`).join("") || `<div class="muted">No folder grew by more than 100 MB.</div>`);
+      (r.growth.folders.map(g => `<div class="row"><div class="grow">${pathEl(g.path)}<div class="small muted">${g.was == null ? `under ${fmt(g.was_under)}` : fmt(g.was)} &rarr; ${fmt(g.size)}</div></div><div class="sz">${growthText(g)}</div></div>`).join("") || `<div class="muted">No folder grew by more than 100 MB.</div>`);
   } else $("#growth").innerHTML = `<div class="muted">This is the first scan. Scan again in a few days (or after an agent runs) to see exactly which folders grew.</div>`;
 
   const ai = r.findings.filter(f => f.category === "ai" && !S.trashed.has(f.path));
@@ -245,8 +250,8 @@ function renderLarge() {
   const min = +$("#large-min").value, age = +$("#large-age").value, cat = $("#large-cat").value, now = Date.now() / 1000;
   const files = S.results.large_files.filter(f => !S.trashed.has(f.path) && f.size >= min && (!age || now - f.mtime >= age * 86400) && (!cat || f.category === cat));
   const tb = $("#large-table tbody");
-  tb.innerHTML = files.map((f, n) => `<tr data-n="${n}"><td><b>${esc(f.name)}</b>${pathEl(f.path)}</td><td>${esc(catInfo(f.category).label)}</td><td class="r sz">${fmt(f.size)}</td><td class="small muted">${ago(f.mtime)}</td><td class="acts"><button class="mini reveal">Reveal</button><button class="mini trash">Trash</button></td></tr>`).join("") || `<tr><td colspan="5" class="muted">No files match.</td></tr>`;
-  $$("tr[data-n]", tb).forEach(tr => { const f = files[+tr.dataset.n]; $(".reveal", tr).onclick = () => revealPath(f.path); $(".trash", tr).onclick = () => trashPaths([{ ...f, safety: "review" }]); });
+  tb.innerHTML = files.map((f, n) => `<tr data-n="${n}"><td><b>${esc(f.name)}</b>${pathEl(f.path)}</td><td>${esc(catInfo(f.category).label)}</td><td class="r sz">${fmt(f.size)}</td><td class="small muted">${ago(f.mtime)}</td><td class="acts"><button class="mini reveal">Reveal</button>${f.locked ? "" : `<button class="mini trash">Trash</button>`}</td></tr>`).join("") || `<tr><td colspan="5" class="muted">No files match.</td></tr>`;
+  $$("tr[data-n]", tb).forEach(tr => { const f = files[+tr.dataset.n]; $(".reveal", tr).onclick = () => revealPath(f.path); const t = $(".trash", tr); if (t) t.onclick = () => trashPaths([{ ...f, safety: "review" }]); });
 }
 
 // ------------------------------------------------------------ duplicates
@@ -265,8 +270,8 @@ function renderDups(groups) {
   const wasted = g.reduce((s, x) => s + x.size * (x.files.length - 1), 0);
   $("#dup-status").textContent = `${g.length} duplicate groups, ${fmt(wasted)} could be freed.`;
   $("#dups").innerHTML = g.map((gr, gi) => `<div class="dupgroup" data-g="${gi}"><div><b>${gr.files.length} copies</b> · ${fmt(gr.size)} each · <span class="muted">extra copies use ${fmt(gr.size * (gr.files.length - 1))}</span></div>` +
-    gr.files.map((f, fi) => `<div class="row" data-f="${fi}"><div class="grow">${pathEl(f.path)}<div class="small muted">changed ${ago(f.mtime)}</div></div>${fi === 0 ? `<span class="badge safe">keep</span>` : ""}<button class="mini reveal">Reveal</button><button class="mini trash">Trash</button></div>`).join("") + `</div>`).join("");
-  $$("#dups .dupgroup").forEach(el => { const gr = g[+el.dataset.g]; $$(".row", el).forEach(row => { const f = gr.files[+row.dataset.f]; $(".reveal", row).onclick = () => revealPath(f.path); $(".trash", row).onclick = () => trashPaths([{ path: f.path, size: gr.size, safety: "review" }]); }); });
+    gr.files.map((f, fi) => `<div class="row" data-f="${fi}"><div class="grow">${pathEl(f.path)}<div class="small muted">changed ${ago(f.mtime)}</div></div>${fi === 0 ? `<span class="badge safe">keep</span>` : ""}<button class="mini reveal">Reveal</button>${f.locked ? "" : `<button class="mini trash">Trash</button>`}</div>`).join("") + `</div>`).join("");
+  $$("#dups .dupgroup").forEach(el => { const gr = g[+el.dataset.g]; $$(".row", el).forEach(row => { const f = gr.files[+row.dataset.f]; $(".reveal", row).onclick = () => revealPath(f.path); const t = $(".trash", row); if (t) t.onclick = () => trashPaths([{ path: f.path, size: gr.size, safety: "review" }]); }); });
 }
 
 // ------------------------------------------------------------ explore
@@ -287,7 +292,7 @@ async function loadTree(path) {
   $("#explore").innerHTML = `<div class="xrow small muted"><div>Name</div><div class="r">Size</div><div>Last changed</div><div></div></div>` + kids.map((c, n) => `<div class="xrow ${c.kind === "dir" && c.has_children ? "dir" : ""}" data-n="${n}">
     <div><div class="nm">${c.kind === "dir" ? "📁" : c.kind === "file" ? "📄" : "…"} ${esc(t.path ? c.name : shortPath(c.name))}</div><div class="bar"><div style="width:${c.size / max * 100}%"></div></div></div>
     <div class="r sz">${fmt(c.size)}</div><div class="small muted">${ago(c.newest)}</div>
-    <div class="acts">${c.path ? `<button class="mini reveal">Reveal</button>${t.path ? `<button class="mini trash">Trash</button>` : ""}` : ""}</div></div>`).join("");
+    <div class="acts">${c.path ? `<button class="mini reveal">Reveal</button>${t.path && !c.locked ? `<button class="mini trash">Trash</button>` : ""}` : ""}</div></div>`).join("");
   $$("#explore .xrow[data-n]").forEach(row => {
     const c = kids[+row.dataset.n];
     if (row.classList.contains("dir")) $(".nm", row).onclick = () => loadTree(c.path);

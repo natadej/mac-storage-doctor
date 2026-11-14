@@ -23,7 +23,7 @@ def write(path, size=0, age_days=0, data=None):
         os.utime(path, (t, t))
 
 
-class ScannerTest(unittest.TestCase):
+class Fixture(unittest.TestCase):
     def setUp(self):
         self.home = tempfile.mkdtemp()
         self.old = (scanner.LARGE_FILE_MIN, scanner.DUP_CANDIDATE_MIN)
@@ -37,6 +37,8 @@ class ScannerTest(unittest.TestCase):
     def scan(self, rules=None):
         return Scanner([self.home], home=self.home, rules=rules).run()
 
+
+class ScannerTest(Fixture):
     def test_name_pattern(self):
         self.assertEqual(name_pattern("step_00012.png"), "step_#.png")
         self.assertEqual(name_pattern("3f2a9c1e-1b2c-4d5e-8f90-123456789abc.json"), "{id}.json")
@@ -155,3 +157,51 @@ class ServerSafetyTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CleanupSafetyTest(Fixture):
+    def test_personal_and_managed_data_is_locked(self):
+        photo = os.path.join(self.home, "Pictures", "Photos Library.photoslibrary", "originals", "IMG_0001.heic")
+        write(photo, 3 * MB)
+        write(os.path.join(self.home, "Movies", "clip.mov"), 3 * MB)
+        sc = self.scan()
+        self.assertTrue(sc.is_locked(photo))
+        self.assertTrue(sc.contains_locked(os.path.join(self.home, "Pictures")))
+        self.assertFalse(sc.is_locked(os.path.join(self.home, "Movies", "clip.mov")))
+        locked = {f["path"]: f["locked"] for f in sc.large_files}
+        self.assertTrue(locked[photo])
+        self.assertFalse(locked[os.path.join(self.home, "Movies", "clip.mov")])
+
+    def test_trash_accounting_moves_bytes_between_categories(self):
+        os.makedirs(os.path.join(self.home, ".Trash"))
+        nm = os.path.join(self.home, "proj", "node_modules")
+        write(os.path.join(nm, "pkg", "big.js"), 3 * MB)
+        write(os.path.join(nm, "package.json"), 1)
+        write(os.path.join(self.home, "proj", "package.json"), 1)
+        sc = self.scan()
+        dev_before, total_before = sc.cat_totals["dev"], sc.tree["size"]
+        self.assertGreater(dev_before, 0)
+        size = sc.remove_path(nm)
+        trash = os.path.join(self.home, ".Trash")
+        sc.moved_to_trash(size, trash)
+        self.assertEqual(sc.cat_totals["dev"], dev_before - size)
+        self.assertEqual(sc.cat_totals["trash"], size)
+        self.assertEqual(sc.tree["size"], total_before)
+        self.assertEqual(next(f for f in sc.findings if f["path"] == trash)["size"], size)
+        sc.trash_emptied(trash)
+        self.assertEqual(sc.cat_totals["trash"], 0)
+        self.assertEqual(sc.tree["size"], total_before - size)
+        self.assertFalse(any(f["path"] == trash for f in sc.findings))
+
+
+class GrowthTest(unittest.TestCase):
+    def test_growth_of_folder_missing_from_baseline_is_a_lower_bound(self):
+        import storage_doctor as sd
+        prev = {"time": 0, "folders": {"/h/a": 200 * MB}, "snapshot_min": 50 * MB}
+        g = sd.growth_since(prev, {"/h/a": 400 * MB, "/h/runs": 175 * MB})
+        by = {f["path"]: f for f in g["folders"]}
+        self.assertEqual(by["/h/a"]["growth"], 200 * MB)
+        self.assertEqual(by["/h/a"]["was"], 200 * MB)
+        self.assertEqual(by["/h/runs"]["growth"], 125 * MB)
+        self.assertIsNone(by["/h/runs"]["was"])
+
