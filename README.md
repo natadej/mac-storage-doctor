@@ -1,8 +1,13 @@
-# Mac Storage Doctor
+# Storage Doctor (Mac and Android)
 
-A small local web app that shows **what is filling your Mac's disk** and helps you keep it at a target (default **50 %** used).
+Shows **what is filling your storage** and helps you keep it at a target (default **50 %** used).
 
-**Android:** there is also a native Android app that scans the phone's own storage. See [android/README.md](android/README.md).
+| Platform | What it is | Docs |
+|---|---|---|
+| **Mac** | A small local web app (Python 3, no installs): `storage_doctor.py`, `index.html`, `app.js`, `style.css` | this file |
+| **Android** | A native app that scans the phone's own storage | [android/README.md](android/README.md) |
+
+The rest of this file is about the Mac app.
 
 It answers questions like:
 

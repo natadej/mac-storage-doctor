@@ -154,6 +154,33 @@ class ServerSafetyTest(unittest.TestCase):
         finally:
             shutil.rmtree(home)
 
+    def test_serves_dashboard_and_only_web_assets(self):
+        import threading
+        import urllib.error
+        import urllib.request
+        from http.server import ThreadingHTTPServer
+        import storage_doctor as sd
+        sd.Handler.token = "t"
+        httpd = ThreadingHTTPServer(("127.0.0.1", 0), sd.Handler)
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        base = f"http://127.0.0.1:{httpd.server_address[1]}"
+        try:
+            def get(path):
+                try:
+                    with urllib.request.urlopen(base + path) as r:
+                        return r.status, r.read()
+                except urllib.error.HTTPError as e:
+                    return e.code, b""
+            status, body = get("/")
+            self.assertEqual(status, 200)
+            self.assertIn(b"/static/app.js", body)
+            self.assertEqual(get("/static/app.js")[0], 200)
+            self.assertEqual(get("/static/style.css")[0], 200)
+            self.assertEqual(get("/static/storage_doctor.py")[0], 404)
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+
 
 if __name__ == "__main__":
     unittest.main()
