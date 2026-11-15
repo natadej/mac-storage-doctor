@@ -345,6 +345,19 @@ class ReviewFixesTest(Fixture):
             del os.environ["STORAGE_DOCTOR_TRASH"]
 
 
+    def test_refresh_results_during_new_scan_does_not_crash(self):
+        write(f"{self.home}/junk/file.bin", data=b"x")
+        sd, sc = self.server_scan()
+        sd.STATE.results = {"scanned": 1}
+        sd.STATE.scanner = Scanner([self.home], home=self.home)
+        sd.STATE.scanning = True
+        try:
+            self.assertIsNone(sd.refresh_results())
+            self.assertEqual(sd.trash_denial(f"{self.home}/junk/file.bin"), "wait for the scan to finish")
+        finally:
+            sd.STATE.scanning = False
+            sd.STATE.results = None
+
     def test_cancelled_duplicate_job_stops(self):
         import duplicates
         for i in range(2):

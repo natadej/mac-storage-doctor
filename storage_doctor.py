@@ -262,7 +262,7 @@ def category_list(sc, disk):
 def refresh_results():
     """Bring the cached results in line with the scanner after a cleanup action."""
     sc, res = STATE.scanner, STATE.results
-    if not (sc and res):
+    if not (sc and res and sc.tree) or STATE.scanning:
         return None
     disk = disk_info()
     res.update(disk=disk, scanned=sc.tree["size"], categories=category_list(sc, disk),
