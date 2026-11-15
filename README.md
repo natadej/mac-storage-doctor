@@ -2,6 +2,8 @@
 
 A small local web app that shows **what is filling your Mac's disk** and helps you keep it at a target (default **50 %** used).
 
+**Android:** there is also a native Android app that scans the phone's own storage. See [android/README.md](android/README.md).
+
 It answers questions like:
 
 - Is it **AI agent files** (Ollama / Hugging Face / LM Studio models, Claude Code, Codex, Cursor, VS Code workspace data, Playwright browsers)?
