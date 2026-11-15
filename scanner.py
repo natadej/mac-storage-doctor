@@ -88,9 +88,20 @@ class RuleSet:
             return r
         if path in self.path_ancestors:
             return None
-        r = self.children.get(parent)
-        if r:
+        specific = self._match_name(path, name, parent)
+        if specific and locks(specific):
+            return specific
+        return self.children.get(parent) or specific
+
+    def locking_dir(self, path, name, parent):
+        """A protective rule (personal library, app-managed data) matching this folder, if any."""
+        r = self.by_path.get(path)
+        if r and locks(r):
             return r
+        specific = self._match_name(path, name, parent)
+        return specific if specific and locks(specific) else None
+
+    def _match_name(self, path, name, parent):
         for r in self.by_dirname.get(name, ()):
             if "requires" in r and not os.path.exists(os.path.join(path, r["requires"])):
                 continue
@@ -111,6 +122,10 @@ class RuleSet:
             if low.endswith(r["match"]):
                 return r
         return None
+
+
+def locks(rule):
+    return not rule["trashable"] or rule["safety"] == "careful"
 
 
 def file_size(st):
@@ -158,7 +173,7 @@ class Scanner:
             except OSError:
                 continue
             self._dev = st.st_dev
-            rule = self.rules.by_path.get(r)
+            rule = self.rules.match_dir(r, os.path.basename(r), os.path.dirname(r))
             node, claimed = self._scan_dir(r, os.path.basename(r) or r, os.path.dirname(r), 0,
                                            inside_stop=bool(rule and rule["stop"]),
                                            inside_action=bool(rule and not rule["container"]),
@@ -177,6 +192,10 @@ class Scanner:
         self._build_index(root)
         for f in self.large_files:
             f["locked"] = self.is_locked(f["path"])
+        for f in self.findings:
+            if f["trashable"] and (f["path"] in self.roots or self.is_locked(f["path"])
+                                   or self.contains_locked(f["path"])):
+                f["trashable"] = False
         self.findings.sort(key=lambda f: -f["size"])
         self.large_files.sort(key=lambda f: -f["size"])
         self.runaway.sort(key=lambda f: -f["score"])
@@ -186,7 +205,7 @@ class Scanner:
     def _record(self, rule, node, name, parent, claimed):
         excl = node["size"] - claimed
         self.cat_totals[rule["cat"]] += excl
-        if not rule["trashable"] or rule["safety"] == "careful":
+        if locks(rule):
             self.locked.add(node["path"])
         if rule["container"] or node["size"] < rule["min_size"]:
             return
@@ -209,7 +228,7 @@ class Scanner:
 
     def _scan_dir(self, path, name, parent, depth, inside_stop, inside_action, quiet, cat):
         node = {"name": name, "path": path, "kind": "dir", "size": 0, "files": 0, "recent": 0,
-                "recent_files": 0, "newest": 0, "children": [], "cat": cat}
+                "recent_files": 0, "newest": 0, "children": [], "cat": cat, "cats": Counter()}
         self.dirs += 1
         if self.dirs % 200 == 0:
             self.current = path
@@ -257,6 +276,8 @@ class Scanner:
                         continue  # scanned separately
                     cname = entry.name
                     rule = None if inside_stop else self.rules.match_dir(cpath, cname, path)
+                    if inside_stop and self.rules.locking_dir(cpath, cname, path):
+                        self.locked.add(cpath)
                     child_quiet = (quiet or cname in R.QUIET_NAMES or cname.endswith(R.QUIET_SUFFIXES))
                     child, cclaimed = self._scan_dir(
                         cpath, cname, path, depth + 1,
@@ -271,6 +292,7 @@ class Scanner:
                         claimed += cclaimed
                     for k in ("size", "files", "recent", "recent_files"):
                         node[k] += child[k]
+                    node["cats"].update(child["cats"])
                     if child["newest"] > node["newest"]:
                         node["newest"] = child["newest"]
                     kids.append(child)
@@ -309,6 +331,7 @@ class Scanner:
                                 "newest": mtime, "recent": size if mtime >= self.recent_cutoff else 0}
                         self._record(frule, leaf, fname, path, 0)
                         claimed += size
+                    node["cats"][fcat] += size
                     if size >= LARGE_FILE_MIN:
                         self.large_files.append({
                             "path": fpath, "name": fname, "size": size, "mtime": mtime, "category": fcat,
@@ -404,28 +427,40 @@ class Scanner:
         prefix = path.rstrip(os.sep) + os.sep
         return any(x.startswith(prefix) for x in self.locked)
 
-    def _category_of(self, path, pnode):
+    def _breakdown(self, path, pnode):
+        """(size, {category: bytes}) of a scanned path, also for paths pruned from the Explore tree."""
         n = self.index.get(path)
-        if n and n.get("cat"):
-            return n["cat"]
-        for c in (pnode or {}).get("children", ()):
-            if c["path"] == path and c.get("cat"):
-                return c["cat"]
-        for f in self.findings + self.large_files:
+        if n is None:
+            n = next((c for c in (pnode or {}).get("children", ()) if c["path"] == path), None)
+        if n is not None:
+            cats = {c: b for c, b in (n.get("cats") or {n.get("cat") or "other": n["size"]}).items() if b}
+            return n["size"], cats
+        for f in self.large_files + self.findings:
             if f["path"] == path:
-                return f["category"]
-        return "other"
+                return f["size"], {f["category"]: f["size"]}
+        return 0, {}
 
-    def _add_size(self, start, delta):
+    def _add_size(self, start, delta, cats=None):
         p = start
         while True:
             n = self.index.get(p)
             if n:
                 n["size"] = max(0, n["size"] + delta)
+                if cats and "cats" in n:
+                    for c, b in cats.items():
+                        n["cats"][c] = max(0, n["cats"].get(c, 0) + b)
             if p in self.roots or p == os.path.dirname(p):
                 break
             p = os.path.dirname(p)
         self.tree["size"] = max(0, self.tree["size"] + delta)
+
+    def _nearest_indexed(self, path):
+        p = path
+        while p not in self.index:
+            if p in self.roots or p == os.path.dirname(p):
+                return None
+            p = os.path.dirname(p)
+        return self.index[p]
 
     def _in_roots(self, path):
         return any(path == r or path.startswith(r.rstrip(os.sep) + os.sep) for r in self.roots)
@@ -436,7 +471,7 @@ class Scanner:
         if not size or not self._in_roots(trash_dir):
             return
         self.cat_totals["trash"] += size
-        self._add_size(trash_dir, size)
+        self._add_size(trash_dir, size, {"trash": size})
         f = next((f for f in self.findings if f["path"] == trash_dir), None)
         if f:
             f["size"] += size
@@ -462,28 +497,26 @@ class Scanner:
                 del self.index[k]
             n["children"] = []
             n["files"] = 0
-        self._add_size(trash_dir, -size)
+        self._add_size(trash_dir, -size, {"trash": -size})
         self.cat_totals["trash"] = max(0, self.cat_totals["trash"] - size)
         self.findings = [x for x in self.findings if x is not f]
         self.large_files = [x for x in self.large_files if not x["path"].startswith(trash_dir + os.sep)]
 
-    def remove_path(self, path, size=None):
-        """Update the in-memory tree after a path was moved to the Trash."""
+    def remove_path(self, path):
+        """Update the in-memory tree and totals after a path was moved to the Trash. Returns its size."""
         parent = os.path.dirname(path)
         pnode = self.index.get(parent)
-        cat = self._category_of(path, pnode)
-        if size is None:
-            size = 0
-            if pnode:
-                for c in pnode["children"]:
-                    if c["path"] == path:
-                        size = c["size"]
-            if not size and path in self.index:
-                size = self.index[path]["size"]
-        self.cat_totals[cat] = max(0, self.cat_totals[cat] - size)
-        if pnode:
+        size, cats = self._breakdown(path, pnode)
+        for c, b in cats.items():
+            self.cat_totals[c] = max(0, self.cat_totals[c] - b)
+        if pnode and any(c["path"] == path for c in pnode["children"]):
             pnode["children"] = [c for c in pnode["children"] if c["path"] != path]
-        self._add_size(parent, -size)
+        else:  # folded into an "N smaller items" entry of the nearest folder still in the tree
+            anc = self._nearest_indexed(parent)
+            rest = next((c for c in (anc or {}).get("children", ()) if c["kind"] == "other"), None)
+            if rest:
+                rest["size"] = max(0, rest["size"] - size)
+        self._add_size(parent, -size, {c: -b for c, b in cats.items()})
         for k in [k for k in self.index if k == path or k.startswith(path + os.sep)]:
             del self.index[k]
         self.findings = [f for f in self.findings if not (f["path"] == path or f["path"].startswith(path + os.sep))]

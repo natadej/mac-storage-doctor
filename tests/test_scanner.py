@@ -182,9 +182,6 @@ class ServerSafetyTest(unittest.TestCase):
             httpd.server_close()
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class CleanupSafetyTest(Fixture):
     def test_personal_and_managed_data_is_locked(self):
@@ -232,3 +229,121 @@ class GrowthTest(unittest.TestCase):
         self.assertEqual(by["/h/runs"]["growth"], 125 * MB)
         self.assertIsNone(by["/h/runs"]["was"])
 
+
+class ReviewFixesTest(Fixture):
+    def server_scan(self, roots=None, rules=None):
+        import storage_doctor as sd
+        sd.STATE.scanning = False
+        sd.STATE.scanner = Scanner(roots or [self.home], home=self.home, rules=rules).run()
+        return sd, sd.STATE.scanner
+
+    def test_symlinked_folders_cannot_reach_outside_or_protected_data(self):
+        outside = tempfile.mkdtemp()
+        try:
+            write(f"{outside}/precious.bin", data=b"x")
+            lib = f"{self.home}/Pictures/Photos Library.photoslibrary"
+            write(f"{lib}/originals/IMG_1.heic", data=b"x")
+            write(f"{self.home}/junk/file.bin", data=b"x")
+            os.symlink(outside, f"{self.home}/out")
+            os.symlink(lib, f"{self.home}/junk/lib")
+            sd, sc = self.server_scan()
+            self.assertFalse(sd.allowed_target(f"{self.home}/out/precious.bin"))
+            self.assertFalse(sd.allowed_target(f"{self.home}/junk/lib/originals/IMG_1.heic"))
+            self.assertFalse(sd.allowed_target(f"{self.home}/junk/lib"))
+            self.assertTrue(sd.allowed_target(f"{self.home}/junk/file.bin"))
+        finally:
+            shutil.rmtree(outside)
+
+    def test_photos_library_in_downloads_is_locked(self):
+        write(f"{self.home}/Downloads/Photos Library.photoslibrary/originals/IMG_1.heic", 3 * MB)
+        write(f"{self.home}/Downloads/old/Old Photos.photoslibrary/originals/IMG_2.heic", 3 * MB)
+        write(f"{self.home}/Downloads/setup.zip", 3 * MB)
+        sd, sc = self.server_scan(rules=[dict(r, min_size=0) for r in __import__("rules").RULES])
+        self.assertFalse(sd.allowed_target(f"{self.home}/Downloads/Photos Library.photoslibrary"))
+        self.assertFalse(sd.allowed_target(f"{self.home}/Downloads/old"))
+        self.assertTrue(sd.allowed_target(f"{self.home}/Downloads/setup.zip"))
+        by = {f["path"]: f for f in sc.findings}
+        self.assertEqual(by[f"{self.home}/Downloads/Photos Library.photoslibrary"]["category"], "media")
+        self.assertFalse(by[f"{self.home}/Downloads/old"]["trashable"])
+
+    def test_no_trashing_during_or_after_incomplete_scan(self):
+        write(f"{self.home}/junk/file.bin", data=b"x")
+        sd, sc = self.server_scan()
+        self.assertTrue(sd.allowed_target(f"{self.home}/junk/file.bin"))
+        sd.STATE.scanning = True
+        self.assertFalse(sd.allowed_target(f"{self.home}/junk/file.bin"))
+        sd.STATE.scanning = False
+        sc.cancelled = True
+        self.assertFalse(sd.allowed_target(f"{self.home}/junk/file.bin"))
+
+    def test_trashing_mixed_folder_subtracts_each_category(self):
+        rules = [dict(kind="dirname", match="node_modules", cat="dev", safety="safe", min_size=0)]
+        write(f"{self.home}/proj/node_modules/pkg/big.js", 2 * MB)
+        write(f"{self.home}/proj/src.bin", 1 * MB)
+        write(f"{self.home}/keep.bin", 1 * MB)
+        sc = self.scan(rules)
+        self.assertEqual(sum(sc.cat_totals.values()), sc.tree["size"])
+        sc.remove_path(f"{self.home}/proj")
+        self.assertEqual(sc.cat_totals["dev"], 0)
+        self.assertEqual(sum(sc.cat_totals.values()), sc.tree["size"])
+
+    def test_careful_libraries_are_not_offered_for_trash(self):
+        write(f"{self.home}/Movies/Edit.fcpbundle/media.mov", 3 * MB)
+        write(f"{self.home}/Movies/Home.imovielibrary/clip.mov", 3 * MB)
+        rules = [dict(r, min_size=0) for r in __import__("rules").RULES]
+        sc = self.scan(rules)
+        by = {f["label"]: f for f in sc.findings}
+        self.assertFalse(by["Final Cut Pro library"]["trashable"])
+        self.assertFalse(by["iMovie library"]["trashable"])
+
+    def test_new_scan_cancels_and_ignores_old_duplicate_job(self):
+        import storage_doctor as sd
+        old = sd.STATE.dup = {"running": True, "results": None, "progress": {}}
+        sd.STATE.scanning = False
+        self.assertTrue(sd.STATE.start_scan([self.home]))
+        self.assertTrue(old["progress"].get("cancelled"))
+        self.assertIsNot(sd.STATE.dup, old)
+        for _ in range(100):
+            if not sd.STATE.scanning:
+                break
+            time.sleep(0.05)
+
+    def test_custom_root_keeps_its_rule(self):
+        rules = [dict(kind="dirname", match="node_modules", cat="dev", safety="safe", min_size=0)]
+        write(f"{self.home}/proj/node_modules/pkg/big.js", 2 * MB)
+        sc = Scanner([f"{self.home}/proj/node_modules"], home=self.home, rules=rules).run()
+        self.assertGreater(sc.cat_totals["dev"], 0)
+        self.assertEqual(sc.cat_totals["other"], 0)
+        root = next(f for f in sc.findings if f["path"] == f"{self.home}/proj/node_modules")
+        self.assertFalse(root["trashable"])
+
+    def test_removing_file_in_pruned_folder_updates_totals(self):
+        old = scanner.TREE_MAX_CHILDREN
+        scanner.TREE_MAX_CHILDREN = 1
+        try:
+            write(f"{self.home}/a/big.bin", 4 * MB)
+            write(f"{self.home}/b/sub/large.bin", 3 * MB)
+            sc = self.scan()
+            self.assertNotIn(f"{self.home}/b", sc.index)
+            before = sc.tree["size"]
+            size = sc.remove_path(f"{self.home}/b/sub/large.bin")
+            self.assertGreater(size, 0)
+            self.assertEqual(sc.tree["size"], before - size)
+            self.assertEqual(sum(sc.cat_totals.values()), sc.tree["size"])
+        finally:
+            scanner.TREE_MAX_CHILDREN = old
+
+    def test_plain_move_reports_no_put_back(self):
+        import storage_doctor as sd
+        write(f"{self.home}/junk/file.bin", data=b"x")
+        os.environ["STORAGE_DOCTOR_TRASH"] = f"{self.home}/.Trash"
+        try:
+            if not sd.IS_MAC:
+                self.assertFalse(sd.move_to_trash(f"{self.home}/junk/file.bin"))
+                self.assertTrue(os.path.exists(f"{self.home}/.Trash/file.bin"))
+        finally:
+            del os.environ["STORAGE_DOCTOR_TRASH"]
+
+
+if __name__ == "__main__":
+    unittest.main()
