@@ -20,12 +20,16 @@ def _partial(path, size):
     return h.hexdigest()
 
 
+def _check(progress):
+    if progress.get("cancelled"):
+        raise InterruptedError
+
+
 def _full(path, progress):
     h = hashlib.sha1()
     with open(path, "rb") as f:
         while True:
-            if progress.get("cancelled"):
-                raise InterruptedError
+            _check(progress)
             b = f.read(CHUNK)
             if not b:
                 break
@@ -39,6 +43,7 @@ def find_duplicates(candidates, progress=None, limit=200):
     progress = progress if progress is not None else {}
     by_size = defaultdict(list)
     for path, _ in candidates:
+        _check(progress)
         try:
             st = os.stat(path, follow_symlinks=False)
         except OSError:
@@ -59,6 +64,7 @@ def find_duplicates(candidates, progress=None, limit=200):
         g = list(uniq.values())
         partial = defaultdict(list)
         for p, st in g:
+            _check(progress)
             try:
                 partial[_partial(p, size)].append((p, st))
             except OSError:
@@ -71,6 +77,8 @@ def find_duplicates(candidates, progress=None, limit=200):
                 progress["current"] = p
                 try:
                     full[_full(p, progress)].append((p, st))
+                except InterruptedError:
+                    raise
                 except OSError:
                     pass
             for digest, files in full.items():
