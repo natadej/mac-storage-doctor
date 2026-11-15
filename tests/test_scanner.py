@@ -345,5 +345,27 @@ class ReviewFixesTest(Fixture):
             del os.environ["STORAGE_DOCTOR_TRASH"]
 
 
+    def test_cancelled_duplicate_job_stops(self):
+        import duplicates
+        for i in range(2):
+            write(f"{self.home}/a{i}.bin", data=b"A" * 5000)
+            write(f"{self.home}/b{i}.bin", data=b"B" * 6000)
+        cands = [(f"{self.home}/{c}{i}.bin", 0) for c in "ab" for i in range(2)]
+        self.assertEqual(len(find_duplicates(cands)), 2)
+        with self.assertRaises(InterruptedError):
+            find_duplicates(cands, {"cancelled": True})
+        progress, real = {}, duplicates._full
+
+        def cancel_mid_read(path, prog):
+            prog["cancelled"] = True
+            return real(path, prog)
+        duplicates._full = cancel_mid_read
+        try:
+            with self.assertRaises(InterruptedError):
+                find_duplicates(cands, progress)
+        finally:
+            duplicates._full = real
+
+
 if __name__ == "__main__":
     unittest.main()
