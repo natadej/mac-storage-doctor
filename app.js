@@ -279,7 +279,7 @@ function renderDups(groups) {
 
 // ------------------------------------------------------------ explore
 async function loadTree(path) {
-  let t; try { t = await api("/api/tree?path=" + encodeURIComponent(path || "")); } catch (e) { if (path) { toast(e.message); } return; }
+  let t; try { t = await api("/api/tree?path=" + encodeURIComponent(path || "")); } catch (e) { if (path) { toast(e.message); return loadTree(""); } return; }
   S.explorePath = t.path;
   const crumbs = [`<a data-p="">All scanned folders</a>`];
   if (t.path) {
