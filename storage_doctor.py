@@ -33,7 +33,8 @@ from scanner import RECENT_DAYS, Scanner, default_roots, normalize_roots  # noqa
 IS_MAC = sys.platform == "darwin"
 HOME = os.path.normpath(os.path.expanduser("~"))
 DATA_DIR = os.environ.get("STORAGE_DOCTOR_DATA") or os.path.join(HOME, ".storage-doctor")
-WEB_DIR = os.path.join(APP_DIR, "web")
+WEB_DIR = next(d for d in (APP_DIR, os.path.join(APP_DIR, "web")) if os.path.isfile(os.path.join(d, "index.html")))
+WEB_FILES = {"app.js", "style.css"}
 LAUNCH_AGENT = os.path.join(HOME, "Library", "LaunchAgents", "com.storagedoctor.monitor.plist")
 DEFAULT_TARGET = 50
 SNAPSHOT_MIN = 50 * R.MB
@@ -350,7 +351,7 @@ class Handler(BaseHTTPRequestHandler):
         if u.path.startswith("/static/"):
             name = os.path.basename(u.path)
             fp = os.path.join(WEB_DIR, name)
-            if not os.path.isfile(fp):
+            if name not in WEB_FILES or not os.path.isfile(fp):
                 return self._send(404, {"error": "not found"})
             ctype = {"js": "text/javascript", "css": "text/css", "svg": "image/svg+xml"}.get(name.rsplit(".", 1)[-1],
                                                                                          "application/octet-stream")
