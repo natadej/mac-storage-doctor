@@ -204,7 +204,10 @@ async function trashPaths(items) {
     const r = await api("/api/trash", { paths: items.map(i => i.path) });
     r.trashed.forEach(t => { S.trashed.add(t.path); S.selected.delete(t.path); });
     S.disk = r.disk; if (r.results) Object.assign(S.results, r.results); renderDisk();
-    toast(`Moved ${r.trashed.length} item(s) to the Trash.` + (r.failed.length ? ` ${r.failed.length} failed: ${r.failed[0].error}` : "") + " Empty the Trash to free the space.", 6000);
+    const noPutBack = r.trashed.filter(t => !t.put_back);
+    toast(`Moved ${r.trashed.length} item(s) to the Trash.` + (r.failed.length ? ` ${r.failed.length} failed: ${r.failed[0].error}` : "") +
+      (noPutBack.length ? ` Finder couldn't trash ${noPutBack.length} of them, so they were moved there directly and "Put Back" won't work; drag them back yourself (first: ${shortPath(noPutBack[0].path)}).` : "") +
+      " Empty the Trash to free the space.", noPutBack.length ? 12000 : 6000);
     renderPlan(); renderLarge(); renderOverview(); if (S.dups) renderDups(S.dups); loadTree(S.explorePath);
   } catch (e) { toast("Failed: " + e.message); }
 }

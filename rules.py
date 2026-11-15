@@ -158,9 +158,9 @@ RULES = [
     # ---------------- Photos & media ----------------
     dict(kind="suffix", match=".photoslibrary", cat="media", label="Photos library", safety="careful", trashable=False,
          advice="Don't delete this file. In Photos: Settings > iCloud > 'Optimize Mac Storage', delete unwanted photos/videos, then empty 'Recently Deleted'."),
-    dict(kind="suffix", match=".fcpbundle", cat="media", label="Final Cut Pro library", safety="careful",
+    dict(kind="suffix", match=".fcpbundle", cat="media", label="Final Cut Pro library", safety="careful", trashable=False,
          advice="In Final Cut: File > Delete Generated Library Files."),
-    dict(kind="suffix", match=".imovielibrary", cat="media", label="iMovie library", safety="careful", advice="Remove old projects inside iMovie."),
+    dict(kind="suffix", match=".imovielibrary", cat="media", label="iMovie library", safety="careful", trashable=False, advice="Remove old projects inside iMovie."),
     dict(kind="path", match="~/Pictures", cat="media", container=True, stop=False),
     dict(kind="path", match="~/Movies", cat="media", container=True, stop=False),
     dict(kind="path", match="~/Music", cat="media", container=True, stop=False),

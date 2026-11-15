@@ -17,7 +17,7 @@ It answers questions like:
 - Is an agent or script **generating files in a loop**? It looks for folders filling up with machine-named files (`step_00001.png`, `run-0001/…`), sudden bursts of new files, and folders nested inside themselves (`build/out/build/out/…`).
 - **What grew since last time?** Every scan is saved, so the next scan shows exactly which folders grew.
 
-Everything runs on your Mac. Nothing is uploaded, and nothing is deleted unless you click **Trash** yourself. Items go to the macOS Trash, so you can still use *Put Back*.
+Everything runs on your Mac. Nothing is uploaded, and nothing is deleted unless you click **Trash** yourself. Items go to the macOS Trash through Finder, so you can still use *Put Back*. If Finder refuses (for example, it isn't allowed to be automated), the app moves the item into the Trash itself and tells you; *Put Back* doesn't work for those, so drag them back by hand.
 
 ## Run it
 

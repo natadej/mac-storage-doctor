@@ -110,12 +110,13 @@ def trash_dir():
 
 
 def move_to_trash(path):
-    """Move to the macOS Trash via Finder (so 'Put Back' works); fall back to a plain move."""
+    """Move to the Trash. Returns True when Finder did it (so 'Put Back' works); False after a plain move,
+    which Finder can't Put Back because it doesn't record the original location."""
     if IS_MAC:
         script = 'on run argv\ntell application "Finder" to delete (POSIX file (item 1 of argv) as alias)\nend run'
         r = subprocess.run(["osascript", "-e", script, path], capture_output=True, text=True)
         if r.returncode == 0:
-            return
+            return True
     trash = trash_dir()
     os.makedirs(trash, exist_ok=True)
     base = os.path.basename(path.rstrip(os.sep))
@@ -126,6 +127,7 @@ def move_to_trash(path):
         dest = os.path.join(trash, f"{stem} {i}{ext}")
         i += 1
     shutil.move(path, dest)
+    return False
 
 
 def empty_trash():
@@ -222,6 +224,7 @@ class State:
             self.scanner = sc
             self.scanning = True
             self.started = time.time()
+            self.dup["progress"]["cancelled"] = True  # stop hashing the previous scan's files
             self.dup = {"running": False, "results": None, "progress": {}}
         threading.Thread(target=self._run, args=(sc,), daemon=True).start()
         return True
@@ -297,19 +300,36 @@ def build_results(sc, disk, growth, duration):
 STATE = State()
 
 
-def allowed_target(path):
-    """Only allow trashing things inside scanned folders, never the important top-level folders."""
+def trash_denial(path):
+    """Why path may not be trashed, or None. Only things inside a finished scan's folders, never protected,
+    personal or app-managed data, and never through a symlinked folder."""
     sc = STATE.scanner
     if not sc or not path or not os.path.isabs(path):
-        return False
+        return "not in the scan"
+    if STATE.scanning or not sc.tree:
+        return "wait for the scan to finish"
+    if sc.cancelled:
+        return "the last scan was cancelled; run a full scan first"
     path = os.path.normpath(path)
     if path in PROTECTED or path in sc.roots:
-        return False
+        return "protected folder"
+    root = next((r for r in sc.roots if path.startswith(r.rstrip(os.sep) + os.sep)), None)
+    if not root:
+        return "outside the scanned folders"
+    if not os.path.lexists(path):
+        return "missing"
+    if os.path.islink(path):
+        return "symlink"
+    parent = os.path.dirname(path)
+    if os.path.realpath(parent) != os.path.normpath(os.path.join(os.path.realpath(root), os.path.relpath(parent, root))):
+        return "inside a symlinked folder"
     if sc.is_locked(path) or sc.contains_locked(path):
-        return False
-    if not any(path.startswith(r.rstrip(os.sep) + os.sep) for r in sc.roots):
-        return False
-    return os.path.lexists(path)
+        return "personal data or app-managed; clean it up in its own app"
+    return None
+
+
+def allowed_target(path):
+    return trash_denial(path) is None
 
 
 # ---------------------------------------------------------------- HTTP
@@ -437,14 +457,15 @@ class Handler(BaseHTTPRequestHandler):
             done, failed = [], []
             for p in paths:
                 p = os.path.normpath(p)
-                if not allowed_target(p):
-                    failed.append({"path": p, "error": "not allowed (protected, personal data, app-managed, missing, or outside scanned folders)"})
+                why = trash_denial(p)
+                if why:
+                    failed.append({"path": p, "error": "not allowed: " + why})
                     continue
                 try:
-                    move_to_trash(p)
+                    put_back = move_to_trash(p)
                     size = STATE.scanner.remove_path(p)
                     STATE.scanner.moved_to_trash(size, trash_dir())
-                    done.append({"path": p, "size": size})
+                    done.append({"path": p, "size": size, "put_back": put_back})
                 except Exception as e:
                     failed.append({"path": p, "error": str(e)})
             return self._send(200, {"trashed": done, "failed": failed, "results": refresh_results(), "disk": disk_info()})
@@ -462,15 +483,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(400, {"error": "run a scan first"})
             if STATE.dup["running"]:
                 return self._send(409, {"error": "already running"})
-            STATE.dup = {"running": True, "results": None, "progress": {}}
+            dup = STATE.dup = {"running": True, "results": None, "progress": {}}
 
-            def job():
+            def job():  # writes only to its own dup dict, so a newer scan never shows these results
                 try:
-                    STATE.dup["results"] = find_duplicates(sc.dup_candidates, STATE.dup["progress"])
+                    dup["results"] = find_duplicates(sc.dup_candidates, dup["progress"])
                 except InterruptedError:
-                    STATE.dup["results"] = []
+                    dup["results"] = []
                 finally:
-                    STATE.dup["running"] = False
+                    dup["running"] = False
 
             threading.Thread(target=job, daemon=True).start()
             return self._send(200, {"started": True})
