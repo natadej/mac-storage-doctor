@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Storage Doctor: install for Mac and Android</title>
+<style>
+  :root { --bg:#0f1115; --card:#181b22; --line:#2a2f3a; --text:#e8eaf0; --muted:#9aa3b2; --accent:#4f8cff; --ok:#3ecf8e; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background:var(--bg); color:var(--text); }
+  main { max-width:880px; margin:0 auto; padding:40px 20px 60px; }
+  h1 { font-size:30px; margin:0 0 4px; }
+  .ver { display:inline-block; font-size:13px; color:var(--ok); border:1px solid var(--ok); border-radius:999px; padding:2px 10px; margin-left:8px; vertical-align:middle; }
+  .lead { color:var(--muted); margin:0 0 28px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:18px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:22px; }
+  .card h2 { margin:0 0 6px; font-size:21px; }
+  .card p, .card li { color:var(--muted); }
+  ol { padding-left:20px; margin:10px 0 0; }
+  li { margin:6px 0; }
+  b, strong { color:var(--text); }
+  .btn { display:inline-block; background:var(--accent); color:#fff; text-decoration:none; font-weight:600; padding:11px 18px; border-radius:10px; margin:10px 0 4px; }
+  .btn.alt { background:transparent; border:1px solid var(--line); color:var(--text); font-weight:500; padding:8px 14px; font-size:14px; }
+  .cmd { display:flex; gap:8px; align-items:stretch; margin:10px 0; }
+  code.c { flex:1; background:#0b0d11; border:1px solid var(--line); border-radius:8px; padding:10px 12px; font:13px/1.4 ui-monospace, Menlo, monospace; color:var(--text); overflow-x:auto; white-space:nowrap; }
+  button.copy { background:var(--line); color:var(--text); border:0; border-radius:8px; padding:0 14px; cursor:pointer; font-weight:600; }
+  .note { font-size:14px; color:var(--muted); margin-top:26px; }
+  .note a, .card a:not(.btn) { color:var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Storage Doctor <span class="ver">V.20261122.01</span></h1>
+  <p class="lead">Shows what is filling your storage (AI agent files, photos, big files, duplicates, files generated in a loop) and helps you keep it at 50&nbsp;% used.</p>
+
+  <div class="grid">
+    <section class="card">
+      <h2>MacBook</h2>
+      <p>Runs on your Mac and opens in your browser. Nothing is uploaded.</p>
+      <ol>
+        <li>Open <b>Terminal</b> (press <b>⌘ Space</b>, type “Terminal”).</li>
+        <li>Paste this and press <b>Return</b>:
+          <div class="cmd"><code class="c" id="mac-cmd">curl -fsSL https://github.com/natadej/mac-storage-doctor/releases/latest/download/install.sh | bash</code><button class="copy" data-copy="mac-cmd">Copy</button></div>
+        </li>
+        <li>The dashboard opens in your browser. Leave the Terminal window open while you use it.</li>
+        <li>For a complete scan: <b>System Settings → Privacy &amp; Security → Full Disk Access</b> → turn on <b>Terminal</b>, then run the command again.</li>
+      </ol>
+      <p>Next time, double-click <b>start.command</b> in <b>~/Applications/Mac Storage Doctor</b>. Running the command again updates to the newest version.</p>
+      <a class="btn alt" href="https://github.com/natadej/mac-storage-doctor/releases/latest/download/MacStorageDoctor-mac.zip">Or download the .zip</a>
+    </section>
+
+    <section class="card">
+      <h2>Android</h2>
+      <p>Scans the phone's own storage. Android 8 or newer.</p>
+      <a class="btn" href="https://github.com/natadej/mac-storage-doctor/releases/latest/download/StorageDoctor-android.apk">Download APK</a>
+      <ol>
+        <li>Open this page <b>on your phone</b> and tap <b>Download APK</b>.</li>
+        <li>Open the downloaded file. If asked, allow your browser to <b>install unknown apps</b>.</li>
+        <li>In the app, tap <b>Allow all files access</b>, and <b>Allow usage access</b> to see how much each app uses.</li>
+      </ol>
+      <p>It isn't on Google Play, because Play only allows “All files access” for certain kinds of apps.</p>
+    </section>
+  </div>
+
+  <p class="note">Why not just a website? A web page can't read your Mac's or phone's disk or move files to the Trash, so the app has to run on the device itself.
+  All versions: <a href="https://github.com/natadej/mac-storage-doctor/releases">releases</a> · Source: <a href="https://github.com/natadej/mac-storage-doctor">GitHub</a></p>
+</main>
+<script>
+document.querySelectorAll("button.copy").forEach(b => b.addEventListener("click", () => {
+  navigator.clipboard.writeText(document.getElementById(b.dataset.copy).textContent).then(() => {
+    b.textContent = "Copied"; setTimeout(() => b.textContent = "Copy", 1500);
+  });
+}));
+</script>
+</body>
+</html>

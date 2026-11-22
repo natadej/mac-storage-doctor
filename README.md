@@ -7,6 +7,8 @@ Shows **what is filling your storage** and helps you keep it at a target (defaul
 | **Mac** | A small local web app (Python 3, no installs): `storage_doctor.py`, `index.html`, `app.js`, `style.css` | this file |
 | **Android** | A native app that scans the phone's own storage | [android/README.md](android/README.md) |
 
+**Install:** https://natadej.github.io/mac-storage-doctor/ has the Mac install command and the Android APK. Downloads for each version are on the [releases page](https://github.com/natadej/mac-storage-doctor/releases); `tools/make_release.sh` builds them.
+
 The rest of this file is about the Mac app.
 
 It answers questions like:
@@ -20,6 +22,14 @@ It answers questions like:
 Everything runs on your Mac. Nothing is uploaded, and nothing is deleted unless you click **Trash** yourself. Items go to the macOS Trash through Finder, so you can still use *Put Back*. If Finder refuses (for example, it isn't allowed to be automated), the app moves the item into the Trash itself and tells you; *Put Back* doesn't work for those, so drag them back by hand.
 
 ## Run it
+
+Easiest: paste this into Terminal. It installs the app in `~/Applications/Mac Storage Doctor` and starts it; run it again to update.
+
+```bash
+curl -fsSL https://github.com/natadej/mac-storage-doctor/releases/latest/download/install.sh | bash
+```
+
+Or run it from a clone:
 
 You need `python3`. It's already installed if you use git or Homebrew. If not, run `xcode-select --install`. There are no packages to install.
 

@@ -30,6 +30,7 @@ import rules as R  # noqa: E402
 from duplicates import find_duplicates  # noqa: E402
 from scanner import RECENT_DAYS, Scanner, default_roots, normalize_roots  # noqa: E402
 
+VERSION = "20261122.01"
 IS_MAC = sys.platform == "darwin"
 HOME = os.path.normpath(os.path.expanduser("~"))
 DATA_DIR = os.environ.get("STORAGE_DOCTOR_DATA") or os.path.join(HOME, ".storage-doctor")
@@ -647,6 +648,7 @@ def report(roots, top=15):
 
 def main():
     ap = argparse.ArgumentParser(description="Find what's filling your Mac's disk.")
+    ap.add_argument("--version", action="version", version=f"Mac Storage Doctor V.{VERSION}")
     sub = ap.add_subparsers(dest="cmd")
     s = sub.add_parser("serve", help="start the web app (default)")
     s.add_argument("--port", type=int, default=8765)
