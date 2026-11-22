@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Lets viewer apps read a file the user taps "Open" on. Shared storage, plus SD cards and other volumes. -->
+<!-- Lets a viewer app read a shared-storage file the user taps "Open" on. Never the app's private files. -->
 <paths>
     <external-path name="storage" path="." />
-    <root-path name="root" path="." />
 </paths>
