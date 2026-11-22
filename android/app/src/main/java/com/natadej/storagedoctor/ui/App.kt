@@ -91,22 +91,26 @@ private val TABS = listOf("Overview", "AI & runaway", "Cleanup", "Large files", 
 
 @Composable
 fun App(vm: MainViewModel) {
-    var continueWithoutAccess by rememberSaveable { mutableStateOf(false) }
+    var requestDisclosure by remember { mutableStateOf(false) }
+    val legacy = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { vm.refreshPermissions() }
     MaterialTheme(colorScheme = darkColorScheme(primary = Accent, background = Bg, surface = Bg, surfaceVariant = CardBg)) {
         Surface(Modifier.fillMaxSize(), color = Bg) {
-            when (fileAccessMode(vm.hasFiles, continueWithoutAccess)) {
-                FileAccessMode.DISCLOSURE -> PermissionScreen(vm) { continueWithoutAccess = true }
-                else -> Main(vm) { continueWithoutAccess = false }
+            when (fileAccessMode(vm.hasFiles, vm.disclosureAnswered, requestDisclosure)) {
+                FileAccessMode.DISCLOSURE -> PermissionScreen(vm, requestLegacyAccess = {
+                    legacy.launch(arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE))
+                }) {
+                    vm.answerDisclosure()
+                    requestDisclosure = false
+                }
+                else -> Main(vm) { requestDisclosure = true }
             }
         }
     }
 }
 
 @Composable
-private fun PermissionScreen(vm: MainViewModel, continueWithoutAccess: () -> Unit) {
+private fun PermissionScreen(vm: MainViewModel, requestLegacyAccess: () -> Unit, answerDisclosure: () -> Unit) {
     val ctx = LocalContext.current
-    val legacy = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { vm.refreshPermissions() }
-    var settingsUnavailable by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.Center) {
         Text("Storage Doctor", fontSize = 28.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(12.dp))
@@ -121,16 +125,18 @@ private fun PermissionScreen(vm: MainViewModel, continueWithoutAccess: () -> Uni
         Text("You can decline or revoke access in Settings. Without it, storage totals, your target and optional storage alerts still work; file scans and cleanup are unavailable.", color = Muted)
         Spacer(Modifier.height(24.dp))
         Button(modifier = Modifier.testTag("grant"), onClick = {
+            answerDisclosure()
             if (Build.VERSION.SDK_INT >= 30) {
                 val i = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:${ctx.packageName}"))
-                settingsUnavailable = runCatching { ctx.startActivity(i) }.recoverCatching {
+                runCatching { ctx.startActivity(i) }.recoverCatching {
                     ctx.startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
-                }.isFailure
-            } else legacy.launch(arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE))
+                }.onFailure {
+                    vm.message = "Settings could not be opened. You can continue without file access or enable it later in Android Settings → Apps → Special app access → All files access."
+                }
+            } else requestLegacyAccess()
         }) { Text(if (Build.VERSION.SDK_INT >= 30) "Agree and open file access settings" else "Agree and allow storage access") }
-        OutlinedButton(onClick = continueWithoutAccess, modifier = Modifier.testTag("limited")) { Text("Not now — use storage totals") }
+        OutlinedButton(onClick = answerDisclosure, modifier = Modifier.testTag("limited")) { Text("Not now — use storage totals") }
         PrivacyButton()
-        if (settingsUnavailable) Text("Settings could not be opened. You can continue without file access or enable it later in Android Settings → Apps → Special app access → All files access.", color = Muted)
     }
 }
 

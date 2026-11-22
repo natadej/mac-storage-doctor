@@ -11,6 +11,9 @@ class Store(ctx: Context) {
     private val prefs = ctx.getSharedPreferences("settings", Context.MODE_PRIVATE)
     private val historyFile = File(ctx.filesDir, "history.json")
 
+    var disclosureAnswered: Boolean
+        get() = prefs.getBoolean("disclosure_answered", false)
+        set(v) = prefs.edit().putBoolean("disclosure_answered", v).apply()
     var target: Int
         get() = prefs.getInt("target", 50)
         set(v) = prefs.edit().putInt("target", v).apply()

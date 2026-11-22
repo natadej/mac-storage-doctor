@@ -54,6 +54,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     var hasFiles by mutableStateOf(Device.hasAllFilesAccess(app)); private set
     var hasUsage by mutableStateOf(Device.hasUsageAccess(app)); private set
+    var disclosureAnswered by mutableStateOf(store.disclosureAnswered); private set
     var target by mutableStateOf(store.target); private set
     var monitor by mutableStateOf(store.monitor); private set
     var disk by mutableStateOf(Device.disk(app)); private set
@@ -101,6 +102,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             selected = emptyMap(); request = null; apps = emptyList()
         } else if (!hasUsage) apps = emptyList()
     }
+
+    fun answerDisclosure() { store.disclosureAnswered = true; disclosureAnswered = true }
 
     fun changeTarget(v: Int) { target = v; store.target = v }
 
