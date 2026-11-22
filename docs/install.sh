@@ -4,7 +4,7 @@
 set -euo pipefail
 URL="https://github.com/natadej/mac-storage-doctor/releases/latest/download/MacStorageDoctor-mac.zip"
 DEST="$HOME/Applications/Mac Storage Doctor"
-if ! python3 -c 'import sys; sys.exit(sys.version_info < (3, 8))' >/dev/null 2>&1; then
+if ! python3 -c 'import sys; sys.exit(sys.version_info < (3, 9))' >/dev/null 2>&1; then
   echo "Mac Storage Doctor needs python3. Run:  xcode-select --install"
   echo "Click Install in the window that opens, then run this command again."
   exit 1
