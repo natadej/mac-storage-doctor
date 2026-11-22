@@ -18,6 +18,8 @@ mkdir -p "$HOME/Applications"
 rm -rf "$DEST"
 mv "$tmp/Mac Storage Doctor" "$DEST"
 chmod +x "$DEST/start.command"
+rm -rf "$tmp"
+trap - EXIT
 echo "Installed V.$(cat "$DEST/VERSION") in $DEST"
 echo "Next time, double-click 'start.command' in that folder (or run this command again to update)."
 echo "Starting... (press Ctrl+C here to stop the app)"
