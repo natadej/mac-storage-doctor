@@ -31,6 +31,7 @@ import com.natadej.storagedoctor.data.MonitorWorker
 import com.natadej.storagedoctor.data.Opener
 import com.natadej.storagedoctor.data.Store
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -73,6 +74,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     var message by mutableStateOf<String?>(null)
 
     private var scanner: Scanner? = null
+    private var duplicateJob: Job? = null
 
     val appsTotal get() = apps.sumOf { it.total }
     val needed get() = neededBytes(disk.total, disk.used, target)
@@ -92,6 +94,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         hasFiles = Device.hasAllFilesAccess(ctx)
         hasUsage = Device.hasUsageAccess(ctx)
         disk = Device.disk(ctx)
+        if (!hasFiles) {
+            cancelScan()
+            duplicateJob?.cancel(); dupProgress = null
+            result = null; dups = null; growth = null
+            selected = emptyMap(); request = null; apps = emptyList()
+        } else if (!hasUsage) apps = emptyList()
     }
 
     fun changeTarget(v: Int) { target = v; store.target = v }
@@ -113,7 +121,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             progress = "Measuring apps…"
             val a = if (hasUsage) withContext(Dispatchers.IO) { runCatching { Device.appSizes(ctx) }.getOrDefault(emptyList()) } else emptyList()
             ticker.cancel()
-            if (s.cancelled) { scanning = false; progress = ""; return@launch }
+            if (s.cancelled || !hasFiles) { scanning = false; progress = ""; return@launch }
             disk = Device.disk(ctx)
             val prev = store.history().lastOrNull()
             val appMap = a.associate { it.pkg to it.total }
@@ -128,15 +136,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun cancelScan() { scanner?.cancelled = true }
 
     fun findDups() {
+        if (!hasFiles) return
         val r = result ?: return
         dupProgress = "Comparing files…"
-        viewModelScope.launch {
+        duplicateJob?.cancel()
+        duplicateJob = viewModelScope.launch {
             val g = withContext(Dispatchers.IO) {
                 findDuplicates(r.dupCandidates, { d, t ->
                     dupProgress = "Comparing files… $d / $t"
                 })
             }
-            dups = g; dupProgress = null
+            if (hasFiles) dups = g
+            dupProgress = null
         }
     }
 
@@ -147,6 +158,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun clearSelection() { selected = emptyMap() }
 
     fun open(path: String) {
+        if (!hasFiles) return
         viewModelScope.launch {
             val uri = withContext(Dispatchers.IO) { runCatching { Opener.uriFor(ctx, path) }.getOrNull() }
             if (uri == null || !Opener.open(ctx, uri, path)) message = "No app on this phone can open this file."
@@ -162,6 +174,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Media files go to the system trash (needs a system dialog); everything else is deleted now. */
     fun cleanup(items: Collection<Target>) {
+        if (!hasFiles) { message = "File access is off. Nothing was deleted."; return }
         val allowed = items.filter { protection.canDelete(it.path) }
         if (allowed.size < items.size) message = "${items.size - allowed.size} protected item(s) were skipped."
         viewModelScope.launch {
@@ -193,6 +206,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun emptyTrash() {
+        if (!hasFiles) { message = "File access is off. Nothing was deleted."; return }
         viewModelScope.launch {
             val t = withContext(Dispatchers.IO) { Cleaner.trashed(ctx) }
             if (t.isEmpty()) { message = "The system trash is empty."; return@launch }

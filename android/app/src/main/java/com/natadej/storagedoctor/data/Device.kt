@@ -40,7 +40,7 @@ object Device {
         return mode == AppOpsManager.MODE_ALLOWED
     }
 
-    /** Size of every installed app (code + data + cache). Needs Usage access. */
+    /** Sizes of packages Android makes visible to us. Needs Usage access. */
     fun appSizes(ctx: Context): List<AppSize> {
         val pm = ctx.packageManager
         val ssm = ctx.getSystemService(StorageStatsManager::class.java)

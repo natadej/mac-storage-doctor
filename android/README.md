@@ -18,8 +18,8 @@ uploaded.
   installers, leftovers) until the target is reached. "Empty trash" frees space held by the system trash.
 - **Open** on any file in Large files, Duplicates or the Cleanup plan shows it in the phone's viewer
   (Gallery, video player, PDF app) so you can check it before deleting.
-- **Large files** (over 100 MB), **Duplicates** (same content, compared by hash), **Apps** (size of
-  every app, needs Usage access), **Explore** (folder tree by size).
+- **Large files** (over 100 MB), **Duplicates** (same content, compared by hash), **Apps** (sizes of
+  packages Android makes visible to the app, optional Usage access), **Explore** (folder tree by size).
 - **Check every 6 hours** (optional): a notification when storage is over target or grew 5 GB or more.
 
 ## Install
@@ -34,7 +34,10 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 
 Or copy `app-debug.apk` to the phone and open it (allow "Install unknown apps" for your file manager).
 
-On first launch, tap **Allow all files access**. For per-app sizes, also tap **Allow usage access**.
+On first launch, read the disclosure and choose **Agree and open file access settings**, or
+**Not now — use storage totals**. Without file access, total/free space, the target and optional
+storage alerts work; file scans and cleanup are off. Usage access for visible-app sizes is optional.
+The in-app privacy policy is available on the disclosure screen and at the bottom of Overview.
 
 ## How deleting works
 
@@ -50,7 +53,11 @@ On first launch, tap **Allow all files access**. For per-app sizes, also tap **A
 
 - Apps cannot read other apps' private data or `Android/data` / `Android/obb`. That space appears
   under "Apps & app data" (with Usage access) or "Android system & not scanned".
-- Google Play only allows "All files access" for some app types, so this app is meant to be sideloaded.
+- Google Play permits file management (including maintenance) as a possible All-files-access use,
+  subject to declaration and approval. See [Play declaration and submission checklist](PLAY_DECLARATION.md).
+  A storage-cleaner label alone does not guarantee eligibility.
+- Android package visibility filters the Apps tab; it is not a complete installed-app inventory.
+  Other packages remain in the system/unscanned residual. The app does not request `QUERY_ALL_PACKAGES`.
 - Per-app sizes include app code, data and cache as reported by Android; they can overlap a little with
   chat media folders that were also scanned.
 
