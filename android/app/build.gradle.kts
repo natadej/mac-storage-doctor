@@ -12,8 +12,8 @@ android {
         applicationId = "com.natadej.storagedoctor"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2026112201
+        versionName = "20261122.01"
     }
 
     buildTypes {

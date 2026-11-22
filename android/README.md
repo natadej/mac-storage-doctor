@@ -22,7 +22,7 @@ uploaded.
 
 ## Install
 
-Build the APK (needs JDK 17 and the Android SDK; set `sdk.dir` in `local.properties` or `ANDROID_HOME`):
+Download `StorageDoctor-android.apk` from the [latest release](https://github.com/natadej/mac-storage-doctor/releases/latest) on the phone and open it (allow "Install unknown apps" for your browser). Or build it yourself (needs JDK 17 and the Android SDK; set `sdk.dir` in `local.properties` or `ANDROID_HOME`):
 
 ```bash
 cd android
