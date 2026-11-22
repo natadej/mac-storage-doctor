@@ -30,7 +30,7 @@ import rules as R  # noqa: E402
 from duplicates import find_duplicates  # noqa: E402
 from scanner import RECENT_DAYS, Scanner, default_roots, normalize_roots  # noqa: E402
 
-VERSION = "20261122.01"
+VERSION = "20261122.02"
 IS_MAC = sys.platform == "darwin"
 HOME = os.path.normpath(os.path.expanduser("~"))
 DATA_DIR = os.environ.get("STORAGE_DOCTOR_DATA") or os.path.join(HOME, ".storage-doctor")
