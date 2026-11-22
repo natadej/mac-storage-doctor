@@ -154,6 +154,21 @@ class ServerSafetyTest(unittest.TestCase):
         finally:
             shutil.rmtree(home)
 
+    def test_open_only_files_inside_the_scan(self):
+        import storage_doctor as sd
+        home = tempfile.mkdtemp()
+        try:
+            write(f"{home}/Movies/clip.mov", data=b"x")
+            sd.STATE.scanner = Scanner([f"{home}/Movies"], home=home).run()
+            self.assertIsNone(sd.open_denial(f"{home}/Movies/clip.mov"))
+            self.assertEqual(sd.open_denial(f"{home}/Movies"), "outside the scanned folders")
+            self.assertEqual(sd.open_denial(f"{home}/Movies/../secret.txt"), "outside the scanned folders")
+            self.assertEqual(sd.open_denial("/etc/passwd"), "outside the scanned folders")
+            self.assertEqual(sd.open_denial(f"{home}/Movies/missing.mov"), "not a file")
+            self.assertEqual(sd.open_denial("Movies/clip.mov"), "not in the scan")
+        finally:
+            shutil.rmtree(home)
+
     def test_serves_dashboard_and_only_web_assets(self):
         import threading
         import urllib.error

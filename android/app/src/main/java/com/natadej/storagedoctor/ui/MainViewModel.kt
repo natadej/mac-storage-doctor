@@ -28,6 +28,7 @@ import com.natadej.storagedoctor.data.Cleaner
 import com.natadej.storagedoctor.data.Device
 import com.natadej.storagedoctor.data.DiskInfo
 import com.natadej.storagedoctor.data.MonitorWorker
+import com.natadej.storagedoctor.data.Opener
 import com.natadej.storagedoctor.data.Store
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -144,6 +145,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun clearSelection() { selected = emptyMap() }
+
+    fun open(path: String) {
+        viewModelScope.launch {
+            val uri = withContext(Dispatchers.IO) { runCatching { Opener.uriFor(ctx, path) }.getOrNull() }
+            if (uri == null || !Opener.open(ctx, uri, path)) message = "No app on this phone can open this file."
+        }
+    }
 
     fun selectRecommended() {
         val byPath = plan.associateBy { it.path }

@@ -16,6 +16,8 @@ uploaded.
   last scan, the busiest folders this week, and AI model files.
 - **Cleanup**: ranked safe / review / careful items. "Select recommended" picks safe items (caches,
   installers, leftovers) until the target is reached. "Empty trash" frees space held by the system trash.
+- **Open** on any file in Large files, Duplicates or the Cleanup plan shows it in the phone's viewer
+  (Gallery, video player, PDF app) so you can check it before deleting.
 - **Large files** (over 100 MB), **Duplicates** (same content, compared by hash), **Apps** (size of
   every app, needs Usage access), **Explore** (folder tree by size).
 - **Check every 6 hours** (optional): a notification when storage is over target or grew 5 GB or more.

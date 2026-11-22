@@ -387,6 +387,7 @@ private fun Runaway(vm: MainViewModel) {
 
 @Composable
 private fun Selectable(vm: MainViewModel, t: Target, title: String, sub: String, safety: Safety?, canDelete: Boolean, advice: String = "") {
+    val canOpen = !t.isDir
     Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).clip(RoundedCornerShape(10.dp)).background(CardBg)
         .clickable(enabled = canDelete) { vm.toggle(t) }.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
         if (canDelete) Checkbox(checked = t.path in vm.selected, onCheckedChange = { vm.toggle(t) })
@@ -405,7 +406,11 @@ private fun Selectable(vm: MainViewModel, t: Target, title: String, sub: String,
             Text(sub, color = Muted, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
             if (advice.isNotEmpty()) Text(advice, color = Muted, fontSize = 12.sp)
         }
-        Text(fmtBytes(t.size), fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 8.dp))
+        Column(horizontalAlignment = Alignment.End) {
+            Text(fmtBytes(t.size), fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 8.dp))
+            if (canOpen) TextButton(onClick = { vm.open(t.path) }, modifier = Modifier.testTag("open"),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) { Text("Open", fontSize = 13.sp) }
+        }
     }
 }
 

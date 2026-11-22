@@ -193,6 +193,7 @@ function renderPlan() {
   });
 }
 
+async function openPath(p) { try { await api("/api/open", { path: p }); } catch (e) { toast(e.message); } }
 async function revealPath(p) { try { await api("/api/reveal", { path: p }); } catch (e) { toast(e.message); } }
 async function trashPaths(items) {
   if (!items.length) return toast("Nothing selected.");
@@ -253,8 +254,8 @@ function renderLarge() {
   const min = +$("#large-min").value, age = +$("#large-age").value, cat = $("#large-cat").value, now = Date.now() / 1000;
   const files = S.results.large_files.filter(f => !S.trashed.has(f.path) && f.size >= min && (!age || now - f.mtime >= age * 86400) && (!cat || f.category === cat));
   const tb = $("#large-table tbody");
-  tb.innerHTML = files.map((f, n) => `<tr data-n="${n}"><td><b>${esc(f.name)}</b>${pathEl(f.path)}</td><td>${esc(catInfo(f.category).label)}</td><td class="r sz">${fmt(f.size)}</td><td class="small muted">${ago(f.mtime)}</td><td class="acts"><button class="mini reveal">Reveal</button>${f.locked ? "" : `<button class="mini trash">Trash</button>`}</td></tr>`).join("") || `<tr><td colspan="5" class="muted">No files match.</td></tr>`;
-  $$("tr[data-n]", tb).forEach(tr => { const f = files[+tr.dataset.n]; $(".reveal", tr).onclick = () => revealPath(f.path); const t = $(".trash", tr); if (t) t.onclick = () => trashPaths([{ ...f, safety: "review" }]); });
+  tb.innerHTML = files.map((f, n) => `<tr data-n="${n}"><td><b>${esc(f.name)}</b>${pathEl(f.path)}</td><td>${esc(catInfo(f.category).label)}</td><td class="r sz">${fmt(f.size)}</td><td class="small muted">${ago(f.mtime)}</td><td class="acts"><button class="mini open">Open</button><button class="mini reveal">Reveal</button>${f.locked ? "" : `<button class="mini trash">Trash</button>`}</td></tr>`).join("") || `<tr><td colspan="5" class="muted">No files match.</td></tr>`;
+  $$("tr[data-n]", tb).forEach(tr => { const f = files[+tr.dataset.n]; $(".open", tr).onclick = () => openPath(f.path); $(".reveal", tr).onclick = () => revealPath(f.path); const t = $(".trash", tr); if (t) t.onclick = () => trashPaths([{ ...f, safety: "review" }]); });
 }
 
 // ------------------------------------------------------------ duplicates
@@ -273,8 +274,8 @@ function renderDups(groups) {
   const wasted = g.reduce((s, x) => s + x.size * (x.files.length - 1), 0);
   $("#dup-status").textContent = `${g.length} duplicate groups, ${fmt(wasted)} could be freed.`;
   $("#dups").innerHTML = g.map((gr, gi) => `<div class="dupgroup" data-g="${gi}"><div><b>${gr.files.length} copies</b> · ${fmt(gr.size)} each · <span class="muted">extra copies use ${fmt(gr.size * (gr.files.length - 1))}</span></div>` +
-    gr.files.map((f, fi) => `<div class="row" data-f="${fi}"><div class="grow">${pathEl(f.path)}<div class="small muted">changed ${ago(f.mtime)}</div></div>${fi === 0 ? `<span class="badge safe">keep</span>` : ""}<button class="mini reveal">Reveal</button>${f.locked ? "" : `<button class="mini trash">Trash</button>`}</div>`).join("") + `</div>`).join("");
-  $$("#dups .dupgroup").forEach(el => { const gr = g[+el.dataset.g]; $$(".row", el).forEach(row => { const f = gr.files[+row.dataset.f]; $(".reveal", row).onclick = () => revealPath(f.path); const t = $(".trash", row); if (t) t.onclick = () => trashPaths([{ path: f.path, size: gr.size, safety: "review" }]); }); });
+    gr.files.map((f, fi) => `<div class="row" data-f="${fi}"><div class="grow">${pathEl(f.path)}<div class="small muted">changed ${ago(f.mtime)}</div></div>${fi === 0 ? `<span class="badge safe">keep</span>` : ""}<button class="mini open">Open</button><button class="mini reveal">Reveal</button>${f.locked ? "" : `<button class="mini trash">Trash</button>`}</div>`).join("") + `</div>`).join("");
+  $$("#dups .dupgroup").forEach(el => { const gr = g[+el.dataset.g]; $$(".row", el).forEach(row => { const f = gr.files[+row.dataset.f]; $(".open", row).onclick = () => openPath(f.path); $(".reveal", row).onclick = () => revealPath(f.path); const t = $(".trash", row); if (t) t.onclick = () => trashPaths([{ path: f.path, size: gr.size, safety: "review" }]); }); });
 }
 
 // ------------------------------------------------------------ explore
@@ -295,10 +296,11 @@ async function loadTree(path) {
   $("#explore").innerHTML = `<div class="xrow small muted"><div>Name</div><div class="r">Size</div><div>Last changed</div><div></div></div>` + kids.map((c, n) => `<div class="xrow ${c.kind === "dir" && c.has_children ? "dir" : ""}" data-n="${n}">
     <div><div class="nm">${c.kind === "dir" ? "📁" : c.kind === "file" ? "📄" : "…"} ${esc(t.path ? c.name : shortPath(c.name))}</div><div class="bar"><div style="width:${c.size / max * 100}%"></div></div></div>
     <div class="r sz">${fmt(c.size)}</div><div class="small muted">${ago(c.newest)}</div>
-    <div class="acts">${c.path ? `<button class="mini reveal">Reveal</button>${t.path && !c.locked ? `<button class="mini trash">Trash</button>` : ""}` : ""}</div></div>`).join("");
+    <div class="acts">${c.path ? `${c.kind === "file" ? `<button class="mini open">Open</button>` : ""}<button class="mini reveal">Reveal</button>${t.path && !c.locked ? `<button class="mini trash">Trash</button>` : ""}` : ""}</div></div>`).join("");
   $$("#explore .xrow[data-n]").forEach(row => {
     const c = kids[+row.dataset.n];
     if (row.classList.contains("dir")) $(".nm", row).onclick = () => loadTree(c.path);
+    const op = $(".open", row); if (op) op.onclick = () => openPath(c.path);
     const rv = $(".reveal", row); if (rv) rv.onclick = () => revealPath(c.path);
     const tr = $(".trash", row); if (tr) tr.onclick = () => trashPaths([{ path: c.path, size: c.size, safety: "review" }]);
   });
