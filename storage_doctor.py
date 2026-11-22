@@ -151,6 +151,25 @@ def reveal(path):
         subprocess.Popen(["xdg-open", os.path.dirname(path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
+def open_denial(path):
+    """Why path can't be previewed, or None. Only regular files inside the scanned folders."""
+    sc = STATE.scanner
+    if not sc or not path or not os.path.isabs(path):
+        return "not in the scan"
+    path = os.path.normpath(path)
+    if not any(path.startswith(r.rstrip(os.sep) + os.sep) for r in sc.roots):
+        return "outside the scanned folders"
+    if not os.path.isfile(path):
+        return "not a file"
+    return None
+
+
+def preview(path):
+    """Quick Look on macOS: shows the file without running it or launching its app."""
+    cmd = ["qlmanage", "-p", path] if IS_MAC else ["xdg-open", path]
+    subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+
+
 # ---------------------------------------------------------------- history
 def save_scan_history(scanner, disk):
     ensure_data_dir()
@@ -452,6 +471,13 @@ class Handler(BaseHTTPRequestHandler):
             if not sc or not any(path == r or path.startswith(r.rstrip(os.sep) + os.sep) for r in sc.roots):
                 return self._send(400, {"error": "path not in scan"})
             reveal(path)
+            return self._send(200, {"ok": True})
+        if u.path == "/api/open":
+            path = body.get("path", "")
+            why = open_denial(path)
+            if why:
+                return self._send(400, {"error": "can't open: " + why})
+            preview(os.path.normpath(path))
             return self._send(200, {"ok": True})
         if u.path == "/api/trash":
             paths = body.get("paths") or ([body["path"]] if body.get("path") else [])

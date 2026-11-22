@@ -50,7 +50,7 @@ Or double-click `start.command` in Finder. The first time, you may have to right
 | **Overview** | Disk gauge with your target, how many GB to free, a breakdown by category, and quick answers |
 | **Cleanup plan** | Ranked items marked `safe` / `review` / `careful`, with a running total and the projected disk % after cleanup. *Select recommended* picks safe items until your target is reached |
 | **AI & runaway files** | Runaway-generation suspects, folders with the most data written in the last 7 days, growth since the last scan, and AI agent/model folders |
-| **Large files** | Files of 200 MB or more, filterable by size, age and category |
+| **Large files** | Files of 200 MB or more, filterable by size, age and category. **Open** shows a file in Quick Look (photos, videos, PDFs) so you can decide to keep or trash it; it never runs the file |
 | **Duplicates** | Identical files of 20 MB or more (compared by content hash) |
 | **Explore** | Drill down into any folder, sorted by size |
 
