@@ -12,6 +12,8 @@ import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,6 +25,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -76,6 +79,8 @@ import androidx.compose.ui.unit.sp
 import com.natadej.storagedoctor.core.Node
 import com.natadej.storagedoctor.core.PlanItem
 import com.natadej.storagedoctor.core.Safety
+import com.natadej.storagedoctor.core.FileAccessMode
+import com.natadej.storagedoctor.core.fileAccessMode
 
 private val Bg = Color(0xFF0F1115)
 private val CardBg = Color(0xFF181B22)
@@ -86,43 +91,71 @@ private val TABS = listOf("Overview", "AI & runaway", "Cleanup", "Large files", 
 
 @Composable
 fun App(vm: MainViewModel) {
+    var requestDisclosure by remember { mutableStateOf(false) }
+    val legacy = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { vm.refreshPermissions() }
     MaterialTheme(colorScheme = darkColorScheme(primary = Accent, background = Bg, surface = Bg, surfaceVariant = CardBg)) {
         Surface(Modifier.fillMaxSize(), color = Bg) {
-            if (!vm.hasFiles) PermissionScreen(vm) else Main(vm)
+            when (fileAccessMode(vm.hasFiles, vm.disclosureAnswered, requestDisclosure)) {
+                FileAccessMode.DISCLOSURE -> PermissionScreen(vm, requestLegacyAccess = {
+                    legacy.launch(arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE))
+                }) {
+                    vm.answerDisclosure()
+                    requestDisclosure = false
+                }
+                else -> Main(vm) { requestDisclosure = true }
+            }
         }
     }
 }
 
 @Composable
-private fun PermissionScreen(vm: MainViewModel) {
+private fun PermissionScreen(vm: MainViewModel, requestLegacyAccess: () -> Unit, answerDisclosure: () -> Unit) {
     val ctx = LocalContext.current
-    val legacy = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { vm.refreshPermissions() }
-    Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center) {
+    Column(Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.Center) {
         Text("Storage Doctor", fontSize = 28.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(12.dp))
-        Text("To find what is filling your phone, the app needs to read your shared storage: photos, downloads, chat media and other files.", color = Muted)
+        Text("File access for storage maintenance", fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(12.dp))
+        Text("With All files access, Storage Doctor reads file names, folder paths, sizes and dates across shared storage, including photos, videos, downloads, documents, chat media and AI model files. It reads file contents to compare duplicates. This powers the folder explorer, storage breakdown, growth and generated-file detection, and cleanup plan.", color = Muted)
         Spacer(Modifier.height(8.dp))
-        Text("Nothing leaves your phone. Nothing is deleted unless you confirm it.", color = Muted)
+        Text("Access is processed only on this phone. Folder sizes and optional visible-app sizes are saved in private local scan history. No files, history or app inventory are uploaded, sold or used for advertising. Opening a file gives the viewer you choose read access to that file.", color = Muted)
+        Spacer(Modifier.height(8.dp))
+        Text("This access also permits changes to shared files. Storage Doctor deletes only items you select and confirm; supported media goes through Android's trash confirmation. Other files are permanently deleted. Android/data and other apps' private files remain restricted. The optional background check reads storage totals only, not your files.", color = Muted)
+        Spacer(Modifier.height(8.dp))
+        Text("You can decline or revoke access in Settings. Without it, storage totals, your target and optional storage alerts still work; file scans and cleanup are unavailable.", color = Muted)
         Spacer(Modifier.height(24.dp))
         Button(modifier = Modifier.testTag("grant"), onClick = {
+            answerDisclosure()
             if (Build.VERSION.SDK_INT >= 30) {
                 val i = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:${ctx.packageName}"))
-                runCatching { ctx.startActivity(i) }.onFailure { ctx.startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)) }
-            } else legacy.launch(arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE))
-        }) { Text(if (Build.VERSION.SDK_INT >= 30) "Allow all files access" else "Allow storage access") }
+                runCatching { ctx.startActivity(i) }.recoverCatching {
+                    ctx.startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+                }.onFailure {
+                    vm.message = "Settings could not be opened. You can continue without file access or enable it later in Android Settings → Apps → Special app access → All files access."
+                }
+            } else requestLegacyAccess()
+        }) { Text(if (Build.VERSION.SDK_INT >= 30) "Agree and open file access settings" else "Agree and allow storage access") }
+        OutlinedButton(onClick = answerDisclosure, modifier = Modifier.testTag("limited")) { Text("Not now — use storage totals") }
+        PrivacyButton()
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun Main(vm: MainViewModel) {
+private fun Main(vm: MainViewModel, requestFiles: () -> Unit) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var confirm by remember { mutableStateOf(false) }
     val snack = remember { SnackbarHostState() }
     val systemDialog = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) {
         vm.onRequestResult(it.resultCode == Activity.RESULT_OK)
     }
-    LaunchedEffect(vm.request) { vm.request?.let { systemDialog.launch(IntentSenderRequest.Builder(it.sender).build()) } }
+    LaunchedEffect(vm.request) {
+        vm.request?.takeUnless { it.launched }?.let {
+            it.launched = true
+            runCatching { systemDialog.launch(IntentSenderRequest.Builder(it.sender).build()) }
+                .onFailure { vm.onRequestLaunchFailed() }
+        }
+    }
     LaunchedEffect(vm.message) { vm.message?.let { snack.showSnackbar(it); vm.message = null } }
     LaunchedEffect(Unit) { if (vm.result == null) vm.scan() }
 
@@ -135,7 +168,8 @@ private fun Main(vm: MainViewModel) {
                     title = { Text("Storage Doctor") },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = Bg),
                     actions = {
-                        if (vm.scanning) TextButton(onClick = vm::cancelScan) { Text("Stop") }
+                        if (!vm.hasFiles) TextButton(onClick = requestFiles) { Text("File access") }
+                        else if (vm.scanning) TextButton(onClick = vm::cancelScan) { Text("Stop") }
                         else TextButton(onClick = vm::scan, modifier = Modifier.testTag("scan")) { Text(if (vm.result == null) "Scan" else "Rescan") }
                     },
                 )
@@ -162,16 +196,19 @@ private fun Main(vm: MainViewModel) {
             }
         },
     ) { pad ->
-        Box(Modifier.padding(pad).fillMaxSize()) {
-            when (tab) {
-                0 -> Overview(vm)
-                else -> if (vm.result == null) Empty(if (vm.scanning) "Scanning…" else "Run a scan first.") else when (tab) {
-                    1 -> Runaway(vm)
-                    2 -> Cleanup(vm)
-                    3 -> LargeFiles(vm)
-                    4 -> Duplicates(vm)
-                    5 -> Apps(vm)
-                    6 -> Explore(vm)
+        Column(Modifier.padding(pad).fillMaxSize()) {
+            if (!vm.hasFiles) Text("Limited mode: storage totals and optional alerts only. File scans and cleanup are off.", color = Muted, modifier = Modifier.padding(16.dp))
+            Box(Modifier.weight(1f)) {
+                when (tab) {
+                    0 -> Overview(vm)
+                    else -> if (vm.result == null) Empty(if (!vm.hasFiles) "Enable file access to scan and manage shared files." else if (vm.scanning) "Scanning…" else "Run a scan first.") else when (tab) {
+                        1 -> Runaway(vm)
+                        2 -> Cleanup(vm)
+                        3 -> LargeFiles(vm)
+                        4 -> Duplicates(vm)
+                        5 -> Apps(vm)
+                        6 -> Explore(vm)
+                    }
                 }
             }
         }
@@ -188,7 +225,7 @@ private fun ConfirmDialog(vm: MainViewModel, close: () -> Unit) {
         onDismissRequest = close,
         title = { Text("Clean up ${fmtBytes(items.sumOf { it.size })}?") },
         text = {
-            Column {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
                 if (media.isNotEmpty()) Text("• ${media.size} photo/video/audio file(s), ${fmtBytes(media.sumOf { it.size })}: moved to the system trash. Android asks you to confirm. You can restore them for 30 days; the space is freed when the trash is emptied.")
                 if (other.isNotEmpty()) {
                     Spacer(Modifier.height(8.dp))
@@ -269,12 +306,12 @@ private fun Overview(vm: MainViewModel) {
                     Spacer(Modifier.height(10.dp))
                 }
                 Text("\"Android system & not scanned\" is the OS, app files Android hides from other apps (Android/data) and anything else the scan cannot read." +
-                    if (!vm.hasUsage) " Allow usage access to split out how much each app uses." else "", color = Muted, fontSize = 12.sp)
+                    if (!vm.hasUsage) " Optional usage access shows sizes for apps Android makes visible to us." else "", color = Muted, fontSize = 12.sp)
             }
         }
-        if (!vm.hasUsage) item {
+        if (vm.hasFiles && !vm.hasUsage) item {
             SectionCard {
-                Title("See how much each app uses", "Android only shares per-app sizes with apps that have Usage access.")
+                Title("Optional app sizes", "Usage access reads sizes of apps Android makes visible to us. Sizes are stored only in local scan history, never uploaded. Other apps remain in the unscanned total. File scanning works without this access.")
                 OutlinedButton(onClick = { ctx.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) }) { Text("Allow usage access") }
             }
         }
@@ -300,6 +337,7 @@ private fun Overview(vm: MainViewModel) {
                 }
             }
         }
+        item { PrivacyButton() }
     }
 }
 
@@ -503,7 +541,7 @@ private fun Apps(vm: MainViewModel) {
     LazyColumn(contentPadding = PaddingValues(vertical = 8.dp)) {
         item {
             SectionCard {
-                Title("Apps", if (vm.hasUsage) "${vm.apps.size} apps · ${fmtBytes(vm.appsTotal)}. Tap an app to clear its cache or storage in Settings." else "Android only shares per-app sizes with apps that have Usage access.")
+                Title("Visible apps", if (vm.hasUsage) "${vm.apps.size} visible apps · ${fmtBytes(vm.appsTotal)}. This is not a complete installed-app inventory. Tap an app to manage its storage in Settings." else "Optional Usage access reads visible-app sizes for local scan history only. Nothing is uploaded. Other apps remain in the unscanned total.")
                 if (!vm.hasUsage) OutlinedButton(onClick = { ctx.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) }) { Text("Allow usage access") }
                 else if (vm.apps.isEmpty()) Text("Rescan to measure apps.", color = Muted)
             }

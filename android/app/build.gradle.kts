@@ -6,14 +6,16 @@ plugins {
 
 android {
     namespace = "com.natadej.storagedoctor"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.natadej.storagedoctor"
         minSdk = 26
-        targetSdk = 35
-        versionCode = 2026112202
-        versionName = "20261122.02"
+        targetSdk = 36
+        // Preserve the existing YYYYMMDDnn sequence for installed-app upgrades.
+        //noinspection HighAppVersionCode
+        versionCode = 2026112301
+        versionName = "20261123.01"
     }
 
     buildTypes {
