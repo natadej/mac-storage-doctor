@@ -149,7 +149,13 @@ private fun Main(vm: MainViewModel, requestFiles: () -> Unit) {
     val systemDialog = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) {
         vm.onRequestResult(it.resultCode == Activity.RESULT_OK)
     }
-    LaunchedEffect(vm.request) { vm.request?.let { systemDialog.launch(IntentSenderRequest.Builder(it.sender).build()) } }
+    LaunchedEffect(vm.request) {
+        vm.request?.takeUnless { it.launched }?.let {
+            it.launched = true
+            runCatching { systemDialog.launch(IntentSenderRequest.Builder(it.sender).build()) }
+                .onFailure { vm.onRequestLaunchFailed() }
+        }
+    }
     LaunchedEffect(vm.message) { vm.message?.let { snack.showSnackbar(it); vm.message = null } }
     LaunchedEffect(Unit) { if (vm.result == null) vm.scan() }
 
