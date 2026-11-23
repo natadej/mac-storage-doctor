@@ -34,8 +34,11 @@ import com.natadej.storagedoctor.data.Store
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -155,13 +158,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         dupProgress = "Comparing files…"
         duplicateJob?.cancel()
         duplicateJob = viewModelScope.launch {
-            val g = withContext(Dispatchers.IO) {
-                findDuplicates(r.dupCandidates, { d, t ->
-                    dupProgress = "Comparing files… $d / $t"
-                })
+            val comparisonJob = currentCoroutineContext().job
+            try {
+                val g = withContext(Dispatchers.IO) {
+                    val context = currentCoroutineContext()
+                    findDuplicates(r.dupCandidates, { d, t ->
+                        launch(Dispatchers.Main) {
+                            if (hasFiles && duplicateJob === comparisonJob) dupProgress = "Comparing files… $d / $t"
+                        }
+                    }, checkCancelled = { context.ensureActive() })
+                }
+                if (hasFiles) dups = g
+            } finally {
+                if (duplicateJob === comparisonJob) dupProgress = null
             }
-            if (hasFiles) dups = g
-            dupProgress = null
         }
     }
 
